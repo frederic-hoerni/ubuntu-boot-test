@@ -1,0 +1,8 @@
+Test-Command: python3 test_hello.py
+Depends:
+  grub-efi-arm64-bin [arm64],
+  grub-efi-amd64-bin [amd64],
+  qemu-system-arm [arm64],
+  qemu-system-x86 [amd64],
+Restrictions: allow-stderr
+Features: test-name=hello

@@ -1,0 +1,11 @@
+Source: ubuntu-boot-test
+Maintainer: Mate Kukri <mate.kukri@canonical.com>
+Section: misc
+Priority: optional
+Standards-Version: 4.6.2
+Build-Depends: debhelper-compat (= 13)
+
+Package: ubuntu-boot-test
+Architecture: amd64
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: End-to-end test of the Ubuntu bootloader stack

@@ -1,8 +1,15 @@
-Test-Command: python3 test_hello.py
+Test-Command: python3 autopkgtest_run.py
 Depends:
-  grub-efi-arm64-bin [arm64],
-  grub-efi-amd64-bin [amd64],
+  python3,
+  python3-requests,
+  python3-pexpect,
+  genisoimage,
+  qemu-efi-aarch64 [arm64],
+  ovmf [amd64],
   qemu-system-arm [arm64],
   qemu-system-x86 [amd64],
+  shim-signed,
+  grub-efi-arm64-signed [arm64],
+  grub-efi-amd64-signed [amd64]
 Restrictions: allow-stderr
-Features: test-name=hello
+Features: test-name=ubuntu-boot-test

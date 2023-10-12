@@ -1,4 +1,4 @@
-Test-Command: python3 autopkgtest_run.py
+Test-Command: python3 autopkgtest_efi.py
 Depends:
   python3,
   python3-requests,
@@ -10,8 +10,19 @@ Depends:
   qemu-system-x86 [amd64],
   shim-signed,
   grub-efi-arm64-signed [arm64],
-  grub-efi-amd64-signed [amd64]
+  grub-efi-amd64-signed [amd64],
   grub-efi-arm64-bin [arm64],
   grub-efi-amd64-bin [amd64]
 Restrictions: allow-stderr
-Features: test-name=ubuntu-boot-test
+Features: test-name=uefi
+
+Test-Command: python3 autopkgtest_pcbios.py
+Depends:
+  python3,
+  python3-requests,
+  python3-pexpect,
+  genisoimage,
+  qemu-system-x86,
+  grub-pc
+Restrictions: allow-stderr
+Features: test-name=pc

@@ -25,85 +25,71 @@ import sys
 import tempfile
 from config import *
 
-def qemu_cmd(arch):
-  if arch == "amd64":
-    return "qemu-system-x86_64"
-  if arch == "aarch64":
-    return "qemu-system-aarch64"
-  assert False, f"Invalid architecture {arch}"
+vmconfig = {
+  Arch.AMD64: {
+    "cmd": "qemu-system-x86_64",
+    "machine": "q35",
+    "cpu": "qemu64",
+    "ram": "2048",
+    "fw_code": "/usr/share/OVMF/OVMF_CODE.fd",
+    "fw_vars_template": "/usr/share/OVMF/OVMF_VARS.fd",
+  },
+  Arch.ARM64: {
+    "cmd": "qemu-system-aarch64",
+    "machine": "virt",
+    "cpu": "cortex-a76",
+    "ram": "2048",
+    "fw_code": "/usr/share/AAVMF/AAVMF_CODE.fd",
+    "fw_vars_template": "/usr/share/AAVMF/AAVMF_VARS.fd",
+  }
+}
 
-def qemu_machine(arch):
-  if arch == "amd64":
-    return "q35"
-  if arch == "aarch64":
-    return "virt"
-  assert False, f"Invalid architecture {arch}"
+def accel_for(guest_arch):
+  # Accelaration can be used when the guest has the same architecture as the
+  # host kernel (NOTE: this is a simplification but it's good enough here)
+  # We also need to ensure that the KVM device node is exposed and accessible
+  if Arch.host_kernel_arch() == guest_arch and \
+      os.access("/dev/kvm", os.R_OK | os.W_OK):
+    return "kvm"
 
-def qemu_cpu(arch):
-  if arch == "amd64":
-    return "qemu64"
-  if arch == "aarch64":
-    return "virt"
-  assert False, f"Invalid architecture {arch}"
+  # Otherwise we fall back to JIT recompilation using TCG
+  return "tcg"
 
-def uefi_code_path(arch):
-  if arch == "amd64":
-    return f"/usr/share/OVMF/OVMF_CODE.fd"
-  if arch == "aarch64":
-    return f"/usr/share/AAVMF/AAVMF_CODE.fd"
+def download_image(release, arch, dest_path):
+  arch = { Arch.AMD64: "amd64", Arch.ARM64: "arm64" }[arch]
 
-  assert False, f"Invalid architecture {arch}"
+  if LOCAL_IMG_SERVER:
+    src_url = f"http://localhost/cloudimg/{release}-server-cloudimg-{arch}.img"
+  else:
+    src_url = f"http://cloud-images.ubuntu.com/{release}/current/{release}-server-cloudimg-{arch}.img"
 
-def uefi_vars_path(arch):
-  if arch == "amd64":
-    return f"/usr/share/OVMF/OVMF_VARS.fd"
-  if arch == "aarch64":
-    return f"/usr/share/AAVMF/AAVMF_VARS.fd"
-
-  assert False, f"Invalid architecture {arch}"
-
-def cloudimg_url(release, arch):
-  if arch == "aarch64": # cloudimg URLs use arm64 over aarch64
-    arch = "arm64"
-
-  if DEBUG:
-    return f"http://localhost/cloudimg/{release}-server-cloudimg-{arch}.img"
-
-  return f"http://cloud-images.ubuntu.com/{release}/current/{release}-server-cloudimg-{arch}.img"
-
-def download_file(src_url, dest_path):
   with open(dest_path, "wb") as f:
     resp = requests.get(src_url)
-    assert resp.status_code == 200
+    assert resp.status_code == 200, "Failed to download image"
     for chunk in resp.iter_content(chunk_size=4096):
       f.write(chunk)
 
 class UEFIVm:
   def __init__(self, release, arch, package_path):
-    self._qemu_cmd = qemu_cmd(arch)
-    self._qemu_machine = qemu_machine(arch)
-    self._qemu_cpu = qemu_cpu(arch)
+    if arch not in vmconfig:
+      assert False, f"Unsupported architecture {arch}"
 
     self._tempdir = tempfile.TemporaryDirectory()
     self._vmpath = self._tempdir.name
 
-    if DEBUG:
-      print(f"Using QEMU                        {self._qemu_cmd}")
-      print(f"Using QEMU machine type           {self._qemu_machine}")
-      print(f"Created VM directory              {self._vmpath}")
-
-    self._uefi_code_path = uefi_code_path(arch)
+    self._arch = arch
+    self._config = vmconfig[arch]
     self._uefi_vars_path = os.path.join(self._vmpath, "UEFI_VARS.fd")
-    shutil.copy(uefi_vars_path(arch), self._uefi_vars_path)
-
-    if DEBUG:
-      print(f"Using code firmware volume        {self._uefi_code_path}")
-      print(f"Created variable firmware volume  {self._uefi_vars_path}")
-
+    shutil.copy(self._config["fw_vars_template"], self._uefi_vars_path)
     self._disk_image_path = os.path.join(self._vmpath, "disk.img")
-    download_file(cloudimg_url(release, arch), self._disk_image_path)
+    download_image(release, arch, self._disk_image_path)
 
     if DEBUG:
+      print(f"Created VM directory              {self._vmpath}")
+      print(f"Using QEMU                        {self._config['cmd']}")
+      print(f"Using QEMU machine type           {self._config['machine']}")
+      print(f"Using code firmware volume        {self._config['fw_code']}")
+      print(f"Created variable firmware volume  {self._uefi_vars_path}")
       print(f"Created disk image                {self._disk_image_path}")
 
     self._create_cloud_init_seed(package_path)
@@ -129,13 +115,13 @@ class UEFIVm:
       print(f"Created cloud-init seed           {self._cloud_init_seed_path}")
 
   def run(self, handler):
-    cmd = " ".join([self._qemu_cmd,
-      "-m", "2048",
-      "-M", f"{self._qemu_machine},accel=kvm",
-      "-cpu", f"{self._qemu_cpu}",
+    cmd = " ".join([self._config["cmd"],
+      "-m", self._config["ram"],
+      "-M", f"{self._config['machine']},accel={accel_for(self._arch)}",
+      "-cpu", f"{self._config['cpu']}",
       "-serial", "mon:stdio",
       "-nographic",
-      "-drive", f"file={self._uefi_code_path},if=pflash,format=raw,unit=0,readonly=on",
+      "-drive", f"file={self._config['fw_code']},if=pflash,format=raw,unit=0,readonly=on",
       "-drive", f"file={self._uefi_vars_path},if=pflash,format=raw,unit=1",
       "-drive", f"file={self._disk_image_path},if=none,id=hdd",
       "-device", f"virtio-blk-pci,drive=hdd,bootindex=0",

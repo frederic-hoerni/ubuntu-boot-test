@@ -1,5 +1,5 @@
 #
-# ubuntu-boot-test: autopkgtest_run.py: Autopkgtest runner
+# ubuntu-boot-test: autopkgtest_efi.py: autopkgtest for EFI boot
 #
 # Copyright (C) 2023 Canonical, Ltd.
 # Author: Mate Kukri <mate.kukri@canonical.com>
@@ -23,32 +23,27 @@ from config import *
 from uefi_vm import UEFIVm
 
 # Figure out what base packages we need
-packages = [
-  "shim-signed"
-]
-
-if ARCH == "amd64":
-  packages.append("grub-efi-amd64-bin")
-  packages.append("grub-efi-amd64-signed")
-elif ARCH == "aarch64":
-  packages.append("grub-efi-arm64-bin")
-  packages.append("grub-efi-arm64-signed")
-else:
-  assert False, f"Invalid architecture {ARCH}"
+packages = {
+  Arch.AMD64: [
+    "shim-signed",
+    "grub-efi-amd64-bin",
+    "grub-efi-amd64-signed"
+  ],
+  Arch.ARM64: [
+    "shim-signed",
+    "grub-efi-arm64-bin",
+    "grub-efi-arm64-signed"
+  ]
+}
 
 # Download packages
 package_dir = tempfile.TemporaryDirectory("")
-package_path = package_dir.name
-
-subprocess.run(
-  ["apt-get", "download"] + packages,
-  cwd=package_path)
-
+subprocess.run(["apt-get", "download"] + packages[ARCH], cwd=package_dir.name)
 if DEBUG:
-  print(f"Downloaded packages to            {package_path}")
+  print(f"Downloaded packages to            {package_dir.name}")
 
 # Create virtual machine
-vm = UEFIVm(RELEASE, ARCH, package_path)
+vm = UEFIVm(RELEASE, ARCH, package_dir.name)
 
 def do_login(proc):
   proc.expect("login: ")
@@ -72,8 +67,8 @@ def test2(proc):
   proc.expect("# ")
   proc.sendline(f"mount LABEL={CILABEL} /mnt")
   proc.expect("# ")
-  proc.sendline("apt install /mnt/*.deb && echo ok")
-  proc.expect("ok\r\r\n")
+  proc.sendline("apt install /mnt/*.deb && echo APTRESULT$?")
+  proc.expect("APTRESULT0\r\r\n")
 
   # Reboot
   proc.expect("# ")

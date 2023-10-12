@@ -87,6 +87,9 @@ def test2(proc):
 vm.run(test2)
 print("Boot with upgraded packages       OK")
 
-# After all is done, give us a shell in debug mode
+# Boot and get an interactive shell when in debug mode
 if DEBUG:
-  vm.run(lambda proc: proc.interact())
+  def debug(proc):
+    proc.logfile = None
+    proc.interact()
+  vm.run(debug)

@@ -6,6 +6,12 @@ Standards-Version: 4.6.2
 Build-Depends: debhelper-compat (= 13)
 
 Package: ubuntu-boot-test
-Architecture: amd64
-Depends: ${shlibs:Depends}, ${misc:Depends}
-Description: End-to-end test of the Ubuntu bootloader stack (amd64)
+Architecture: any
+Depends: python3,
+  python3-requests,
+  python3-pexpect,
+  genisoimage,
+  lsb-release,
+  ${shlibs:Depends},
+  ${misc:Depends}
+Description: End-to-end test of the Ubuntu bootloader stack

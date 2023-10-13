@@ -1,11 +1,7 @@
 Test-Command: python3 src/run.py -r $(lsb_release --codename --short) -a amd64 -f uefi
 Depends:
-  python3,
-  python3-requests,
-  python3-pexpect,
-  genisoimage,
-  ovmf,
   qemu-system-x86,
+  ovmf,
   shim-signed,
   grub-efi-amd64-signed,
   grub-efi-amd64-bin
@@ -15,10 +11,6 @@ Features: test-name=uefi-amd64
 
 Test-Command: python3 src/run.py -r $(lsb_release --codename --short) -a amd64 -f pcbios
 Depends:
-  python3,
-  python3-requests,
-  python3-pexpect,
-  genisoimage,
   qemu-system-x86,
   grub-pc
 Restrictions: allow-stderr
@@ -27,15 +19,11 @@ Features: test-name=pc-amd64
 
 Test-Command: python3 src/run.py -r $(lsb_release --codename --short) -a arm64 -f uefi
 Depends:
-  python3,
-  python3-requests,
-  python3-pexpect,
-  genisoimage,
-  qemu-efi-aarch64,
   qemu-system-arm,
+  qemu-efi-aarch64,
   shim-signed,
   grub-efi-arm64-signed,
-  grub-efi-arm64-bin,
+  grub-efi-arm64-bin
 Restrictions: allow-stderr
 Architecture: arm64
 Features: test-name=uefi-arm64

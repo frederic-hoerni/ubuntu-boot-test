@@ -88,7 +88,9 @@ class VirtualMachine:
       "-M", f"{self._config['machine']},accel={accel_for(self._arch)}",
       "-cpu", f"{self._config['cpu']}",
       "-serial", "mon:stdio",
-      "-nographic"
+      "-nographic",
+      "-netdev", "user,id=net0",
+      "-device", "virtio-net-pci,romfile=,netdev=net0"
     ]
 
     if self._firmware == Firmware.UEFI:

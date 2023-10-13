@@ -82,7 +82,7 @@ def test2(proc):
   proc.expect("# ")
   proc.sendline(f"mount LABEL={CILABEL} /mnt")
   proc.expect("# ")
-  proc.sendline("apt install /mnt/*.deb && echo APTRESULT$?")
+  proc.sendline("apt install -y /mnt/*.deb && echo APTRESULT$?")
   proc.expect("APTRESULT0\r\r\n")
 
   # Reboot

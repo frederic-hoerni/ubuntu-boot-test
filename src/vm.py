@@ -43,7 +43,7 @@ vmconfig_uefi = {
   (Arch.ARM64, Firmware.UEFI): {
     "cmd": "qemu-system-aarch64",
     "machine": "virt",
-    "cpu": "cortex-a76",
+    "cpu": "cortex-a72",
     "ram": "2048",
     "fw_code": "/usr/share/AAVMF/AAVMF_CODE.fd",
     "fw_vars_template": "/usr/share/AAVMF/AAVMF_VARS.fd",

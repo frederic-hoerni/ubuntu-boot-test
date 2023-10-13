@@ -1,5 +1,5 @@
 Test-Command: python3 src/run.py -r $(lsb_release --codename --short) -a amd64 -f uefi
-Depends:
+Depends: @,
   qemu-system-x86,
   ovmf,
   shim-signed,
@@ -10,7 +10,7 @@ Architecture: amd64
 Features: test-name=uefi-amd64
 
 Test-Command: python3 src/run.py -r $(lsb_release --codename --short) -a amd64 -f pcbios
-Depends:
+Depends: @,
   qemu-system-x86,
   grub-pc
 Restrictions: allow-stderr
@@ -18,7 +18,7 @@ Architecture: amd64
 Features: test-name=pc-amd64
 
 Test-Command: python3 src/run.py -r $(lsb_release --codename --short) -a arm64 -f uefi
-Depends:
+Depends: @,
   qemu-system-arm,
   qemu-efi-aarch64,
   shim-signed,

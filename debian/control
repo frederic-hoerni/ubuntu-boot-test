@@ -8,4 +8,4 @@ Build-Depends: debhelper-compat (= 13)
 Package: ubuntu-boot-test
 Architecture: amd64
 Depends: ${shlibs:Depends}, ${misc:Depends}
-Description: End-to-end test of the Ubuntu bootloader stack
+Description: End-to-end test of the Ubuntu bootloader stack (amd64)

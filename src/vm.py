@@ -73,14 +73,14 @@ class VirtualMachine:
     create_cloud_init_seed(package_dir_path, self._cloud_init_seed_path)
 
     if DEBUG:
-      print(f"Created VM directory              {self._vmpath}")
-      print(f"Using QEMU                        {self._config['cmd']}")
-      print(f"Using QEMU machine type           {self._config['machine']}")
+      print(f"Created VM directory {self._vmpath}")
+      print(f"Using QEMU {self._config['cmd']}")
+      print(f"Using QEMU machine type {self._config['machine']}")
       if self._firmware == Firmware.UEFI:
-        print(f"Using code firmware volume        {self._config['fw_code']}")
-        print(f"Created variable firmware volume  {self._uefi_vars_path}")
-      print(f"Created disk image                {self._disk_image_path}")
-      print(f"Created cloud-init seed           {self._cloud_init_seed_path}")
+        print(f"Using code firmware volume {self._config['fw_code']}")
+        print(f"Created variable firmware volume {self._uefi_vars_path}")
+      print(f"Created disk image {self._disk_image_path}")
+      print(f"Created cloud-init seed {self._cloud_init_seed_path}")
 
   def run(self, handler):
     base_opts = [self._config["cmd"],

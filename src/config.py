@@ -17,7 +17,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 # Enable debug mode
-DEBUG = False
+DEBUG = True
 
 # Use local webserver for downloading images
 LOCAL_IMG_SERVER = True

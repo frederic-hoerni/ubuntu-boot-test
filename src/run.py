@@ -21,24 +21,12 @@ from util import *
 from vm import VirtualMachine
 import argparse
 import subprocess
+import shutil
 import sys
 import tempfile
 
-parser = argparse.ArgumentParser(
-  prog='ubuntu-boot-test',
-  description='End-to-end Ubuntu bootloader test')
-
-parser.add_argument("-r", "--release", required=True,
-  help="Guest Ubuntu release")
-parser.add_argument("-a", "--arch", required=True, type=Arch,
-  help="Guest architecture")
-parser.add_argument("-f", "--firmware", required=True, type=Firmware,
-  help="Guest firmware type")
-
-args = parser.parse_args()
-
-# Figure out what base packages we need
-packages = {
+# Packages we need for each architecture+firmware combination
+PER_ARCH_FW_PACKAGES = {
   (Arch.AMD64, Firmware.UEFI): [
     "shim-signed",
     "grub-efi-amd64-bin",
@@ -54,11 +42,37 @@ packages = {
   ]
 }
 
-# Download packages
+parser = argparse.ArgumentParser(
+  prog='ubuntu-boot-test',
+  description='End-to-end Ubuntu bootloader test')
+
+parser.add_argument("-r", "--release", required=True,
+  help="Guest Ubuntu release")
+parser.add_argument("-a", "--arch", required=True, type=Arch,
+  help="Guest architecture")
+parser.add_argument("-f", "--firmware", required=True, type=Firmware,
+  help="Guest firmware type")
+parser.add_argument("-u", "--unsigned", action="store_true",
+  help="Remove shim and use only unsigned GRUB (only with <packages>)")
+parser.add_argument("packages", nargs="*",
+  help="List of packages to install (instead of apt-get download)")
+
+args = parser.parse_args()
+
+# Collect paackages
 package_dir = tempfile.TemporaryDirectory("")
-download_packages(packages[(args.arch, args.firmware)], package_dir.name)
+
 if DEBUG:
-  print(f"Downloaded packages to            {package_dir.name}")
+  print(f"Storing packages in {package_dir.name}")
+
+if len(args.packages) > 0:
+  # Copy packages
+  for package in args.packages:
+    shutil.copy(package, package_dir.name)
+else:
+  # Download packages
+  download_packages(
+    PER_ARCH_FW_PACKAGES[(args.arch, args.firmware)], package_dir.name)
 
 # Create virtual machine
 vm = VirtualMachine(args.release, args.arch, args.firmware, package_dir.name)
@@ -69,35 +83,47 @@ def do_login(proc):
   proc.expect("Password: ")
   proc.sendline(PASSWORD)
 
+def do_shell(proc, cmd):
+  proc.expect("# ")
+  proc.sendline(cmd)
+
 # Test #1: make sure we can boot and log in
 def test1(proc):
   do_login(proc)
-  proc.expect("# ")
-  proc.sendline("poweroff")
+  do_shell(proc, "poweroff")
 
 # Test #2: install new packages
 def test2(proc):
-  # Login and update packages
+  # Login
   do_login(proc)
-  proc.expect("# ")
-  proc.sendline(f"mount LABEL={CILABEL} /mnt")
-  proc.expect("# ")
-  proc.sendline("apt install -y /mnt/*.deb && echo APTRESULT$?")
+
+  if args.unsigned:
+    # Purge signed packages if in unsigned mode
+    # We do this to make doubly sure the new GRUB is the only
+    # thing in the booth path in this mode.
+    # Note that this shouldn't be confused with running snakeoil signed
+    # shim and GRUB for testing.
+    do_shell(proc, "apt purge --allow-remove-essential -y grub-*-signed shim-signed")
+    do_shell(proc, "rm -r /boot/efi/*")
+
+  # Install packages to be tested
+  do_shell(proc, f"mount LABEL={CILABEL} /mnt")
+  do_shell(proc, "apt install -y /mnt/*.deb && echo APTRESULT$?")
   proc.expect("APTRESULT0\r\r\n")
+  do_shell(proc, "grub-install")
 
   # Reboot
-  proc.expect("# ")
-  proc.sendline("reboot")
-  # Check for successful reboot, then power off
+  do_shell(proc, "reboot")
+
+  # Login to check for successful reboot, then power off
   do_login(proc)
-  proc.expect("# ")
-  proc.sendline("poweroff")
+  do_shell(proc, "poweroff")
 
 
 vm.run(test1)
-print("Boot with original packages       OK")
+print("Boot with original packages OK")
 vm.run(test2)
-print("Boot with upgraded packages       OK")
+print("Boot with upgraded packages OK")
 
 # Boot and get an interactive shell when in debug mode
 if DEBUG:

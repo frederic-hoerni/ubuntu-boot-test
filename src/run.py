@@ -52,8 +52,10 @@ parser.add_argument("-a", "--arch", required=True, type=Arch,
   help="Guest architecture")
 parser.add_argument("-f", "--firmware", required=True, type=Firmware,
   help="Guest firmware type")
-parser.add_argument("-u", "--unsigned", action="store_true",
-  help="Remove shim and use only unsigned GRUB (only with <packages>)")
+parser.add_argument("-s", "--secboot", type=Secboot, default=Secboot.NONE,
+  help="Secure Boot configuration (only meaningful with -f uefi)")
+parser.add_argument("--no-shim", action="store_true",
+  help="Use GRUB without installing shim (only meaningful with -f uefi)")
 parser.add_argument("packages", nargs="*",
   help="List of packages to install (instead of apt-get download)")
 
@@ -67,15 +69,21 @@ if DEBUG:
 
 if len(args.packages) > 0:
   # Copy packages
-  for package in args.packages:
-    shutil.copy(package, package_dir.name)
+  for package_path in args.packages:
+    if args.no_shim and "shim" in package_path.split("/")[-1]:
+      print("Warning: Got shim package and --no-shim at once")
+    shutil.copy(package_path, package_dir.name)
 else:
   # Download packages
   download_packages(
     PER_ARCH_FW_PACKAGES[(args.arch, args.firmware)], package_dir.name)
 
 # Create virtual machine
-vm = VirtualMachine(args.release, args.arch, args.firmware, package_dir.name)
+vm = VirtualMachine(args.release,
+                    args.arch,
+                    args.firmware,
+                    args.secboot,
+                    package_dir.name)
 
 def do_login(proc):
   proc.expect("login: ")
@@ -97,10 +105,10 @@ def test2(proc):
   # Login
   do_login(proc)
 
-  if args.unsigned:
+  if args.no_shim:
     # Purge signed packages if in unsigned mode
     # We do this to make doubly sure the new GRUB is the only
-    # thing in the booth path in this mode.
+    # thing in the boot path.
     # Note that this shouldn't be confused with running snakeoil signed
     # shim and GRUB for testing.
     do_shell(proc, "apt purge --allow-remove-essential -y grub-*-signed shim-signed")

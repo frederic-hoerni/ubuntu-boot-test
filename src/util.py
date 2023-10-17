@@ -41,6 +41,17 @@ class Firmware(Enum):
   def __str__(self):
     return self.value
 
+class Secboot(Enum):
+  """Secure Boot configuration
+  """
+  NONE      = "none"
+  SNAKEOIL  = "snakeoil"
+  MS        = "ms"
+
+  def __str__(self):
+    return self.value
+
+
 def host_kernel_arch():
   """Determine the host's kernel architecture
   """

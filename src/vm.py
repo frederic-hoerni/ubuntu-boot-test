@@ -32,7 +32,11 @@ vmconfig_uefi = {
     "cpu": "qemu64",
     "ram": "2048",
     "fw_code": "/usr/share/OVMF/OVMF_CODE.fd",
-    "fw_vars_template": "/usr/share/OVMF/OVMF_VARS.fd",
+    "fw_vars_template": {
+      Secboot.NONE: "/usr/share/OVMF/OVMF_VARS.fd",
+      Secboot.MS: "/usr/share/OVMF/OVMF_VARS.ms.fd",
+      Secboot.SNAKEOIL: "/usr/share/OVMF/OVMF_VARS.snakeoil.fd"
+    }
   },
   (Arch.AMD64, Firmware.PCBIOS): {
     "cmd": "qemu-system-x86_64",
@@ -46,12 +50,16 @@ vmconfig_uefi = {
     "cpu": "cortex-a72",
     "ram": "2048",
     "fw_code": "/usr/share/AAVMF/AAVMF_CODE.fd",
-    "fw_vars_template": "/usr/share/AAVMF/AAVMF_VARS.fd",
+    "fw_vars_template": {
+      Secboot.NONE: "/usr/share/OVMF/AAVMF_VARS.fd",
+      Secboot.MS: "/usr/share/OVMF/AAVMF_VARS.ms.fd",
+      Secboot.SNAKEOIL: "/usr/share/OVMF/AAVMF_VARS.snakeoil.fd"
+    }
   }
 }
 
 class VirtualMachine:
-  def __init__(self, release, arch, firmware, package_dir_path):
+  def __init__(self, release, arch, firmware, secboot, package_dir_path):
     if (arch, firmware) not in vmconfig_uefi:
       assert False, f"Unsupported configuration {arch} {firmware}"
 
@@ -64,7 +72,7 @@ class VirtualMachine:
 
     if self._firmware == Firmware.UEFI:
       self._uefi_vars_path = os.path.join(self._vmpath, "UEFI_VARS.fd")
-      shutil.copy(self._config["fw_vars_template"], self._uefi_vars_path)
+      shutil.copy(self._config["fw_vars_template"][secboot], self._uefi_vars_path)
 
     self._disk_image_path = os.path.join(self._vmpath, "disk.img")
     download_image(release, arch, self._disk_image_path)

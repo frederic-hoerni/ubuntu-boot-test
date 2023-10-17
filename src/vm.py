@@ -51,15 +51,41 @@ vmconfig_uefi = {
     "ram": "2048",
     "fw_code": "/usr/share/AAVMF/AAVMF_CODE.fd",
     "fw_vars_template": {
-      Secboot.NONE: "/usr/share/OVMF/AAVMF_VARS.fd",
-      Secboot.MS: "/usr/share/OVMF/AAVMF_VARS.ms.fd",
-      Secboot.SNAKEOIL: "/usr/share/OVMF/AAVMF_VARS.snakeoil.fd"
+      Secboot.NONE: "/usr/share/AAVMF/AAVMF_VARS.fd",
+      Secboot.MS: "/usr/share/AAVMF/AAVMF_VARS.ms.fd",
+      Secboot.SNAKEOIL: "/usr/share/AAVMF/AAVMF_VARS.snakeoil.fd"
     }
   }
 }
 
+METADATA = "local-hostname: ubuntu-boot-test"
+
+USERDATA = """#cloud-config
+runcmd:
+  - passwd -d root
+  - sed -i -e '/^#\\?PasswordAuthentication/s/^.*$/PasswordAuthentication yes/' /etc/ssh/sshd_config
+  - sed -i -e '/^#\\?PermitEmptyPasswords/s/^.*$/PermitEmptyPasswords yes/' /etc/ssh/sshd_config
+  - sed -i -e '/^#\\?PermitRootLogin/s/^.*$/PermitRootLogin yes/' /etc/ssh/sshd_config
+  - systemctl restart sshd
+  - echo CLOUD_INIT_DONE > /dev/ttyS0
+"""
+
+def create_cloud_init_seed(dest_path):
+  tempdir = tempfile.TemporaryDirectory()
+  metadata_path = os.path.join(tempdir.name, "meta-data")
+  userdata_path = os.path.join(tempdir.name, "user-data")
+  with open(metadata_path, "w") as f:
+    f.write(METADATA)
+  with open(userdata_path, "w") as f:
+    f.write(USERDATA)
+  result = subprocess.run(["genisoimage", "-joliet", "-rock", "-quiet",
+    "-output", dest_path,
+    "-volid", "cidata",
+    metadata_path, userdata_path])
+  assert result.returncode == 0
+
 class VirtualMachine:
-  def __init__(self, release, arch, firmware, secboot, package_dir_path):
+  def __init__(self, release, arch, firmware, secboot):
     if (arch, firmware) not in vmconfig_uefi:
       assert False, f"Unsupported configuration {arch} {firmware}"
 
@@ -78,7 +104,10 @@ class VirtualMachine:
     download_image(release, arch, self._disk_image_path)
 
     self._cloud_init_seed_path = os.path.join(self._vmpath, "cloud-init.seed")
-    create_cloud_init_seed(package_dir_path, self._cloud_init_seed_path)
+    create_cloud_init_seed(self._cloud_init_seed_path)
+
+    self._ssh_port = 2222
+    self._firstboot = True
 
     if DEBUG:
       print(f"Created VM directory {self._vmpath}")
@@ -90,14 +119,14 @@ class VirtualMachine:
       print(f"Created disk image {self._disk_image_path}")
       print(f"Created cloud-init seed {self._cloud_init_seed_path}")
 
-  def run(self, handler):
+  def start(self):
     base_opts = [self._config["cmd"],
       "-m", self._config["ram"],
       "-M", f"{self._config['machine']},accel={accel_for(self._arch)}",
       "-cpu", f"{self._config['cpu']}",
       "-serial", "mon:stdio",
       "-nographic",
-      "-netdev", "user,id=net0",
+      "-netdev", f"user,id=net0,hostfwd=tcp::{self._ssh_port}-:22",
       "-device", "virtio-net-pci,romfile=,netdev=net0"
     ]
 
@@ -115,9 +144,33 @@ class VirtualMachine:
       "-drive", f"file={self._cloud_init_seed_path},if=virtio,format=raw,readonly=on"
     ]
 
-    proc = pexpect.spawn(" ".join(base_opts + fw_opts + disk_opts))
-    proc.timeout = 300
-    if DEBUG:
-      proc.logfile = sys.stdout.buffer
-    handler(proc)
-    return proc.wait()
+    # Create VM process
+    self._vm_process = pexpect.spawn(" ".join(base_opts + fw_opts + disk_opts))
+
+  def waitboot(self):
+    if self._firstboot:
+      self._firstboot = False
+      self._vm_process.expect("CLOUD_INIT_DONE", timeout=1800)
+    self._vm_process.expect("ubuntu-boot-test login: ", timeout=1800)
+
+  def waitshutdown(self):
+    self._vm_process.wait()
+
+  def run_cmd(self, args):
+    result = subprocess.run(["ssh",
+      "-o", "StrictHostKeyChecking=no",
+      "-o", "UserKnownHostsFile=/dev/null",
+      "-p", f"{self._ssh_port}",
+      "root@localhost" ] + args)
+    assert result.returncode == 0
+
+  def copy_files(self, src_file_paths, dest_dir_path):
+    result = subprocess.run(["scp",
+      "-o", "StrictHostKeyChecking=no",
+      "-o", "UserKnownHostsFile=/dev/null",
+      "-P", f"{self._ssh_port}"] +
+      src_file_paths +
+      [f"root@localhost:{dest_dir_path}"])
+    assert result.returncode == 0
+
+

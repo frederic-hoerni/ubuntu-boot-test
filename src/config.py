@@ -21,20 +21,3 @@ DEBUG = True
 
 # Use local webserver for downloading images
 LOCAL_IMG_SERVER = True
-
-# Virtual machine configuration
-HOSTNAME = "ubuntu-boot-test"
-USERNAME = "root"
-PASSWORD = "root"
-
-CILABEL = "cidata"
-
-METADATA = f"local-hostname: {HOSTNAME}"
-
-USERDATA = f"""#cloud-config
-users:
-  - name: {USERNAME}
-    plain_text_passwd: {PASSWORD}
-    lock_passwd: false
-passwd: {{ expire: False }}
-"""

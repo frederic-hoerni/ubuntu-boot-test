@@ -93,23 +93,3 @@ def download_packages(packages, dest_path):
     ["apt-get", "download"] + list(packages),
     cwd=dest_path)
   assert result.returncode == 0, "Failed to download packages"
-
-
-def create_cloud_init_seed(package_dir_path, dest_path):
-  tempdir = tempfile.TemporaryDirectory()
-  metadata_path = os.path.join(tempdir.name, "meta-data")
-  userdata_path = os.path.join(tempdir.name, "user-data")
-  with open(metadata_path, "w") as f:
-    f.write(METADATA)
-  with open(userdata_path, "w") as f:
-    f.write(USERDATA)
-
-  package_paths = map(
-    lambda file: os.path.join(package_dir_path, file),
-    os.listdir(package_dir_path))
-
-  result = subprocess.run(["genisoimage", "-joliet", "-rock", "-quiet",
-    "-output", dest_path,
-    "-volid", CILABEL,
-    metadata_path, userdata_path] + list(package_paths))
-  assert result.returncode == 0

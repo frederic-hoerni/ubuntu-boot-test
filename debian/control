@@ -12,6 +12,7 @@ Depends: python3,
   python3-pexpect,
   genisoimage,
   lsb-release,
+  ssh,
   ${shlibs:Depends},
   ${misc:Depends}
 Description: End-to-end test of the Ubuntu bootloader stack

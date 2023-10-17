@@ -21,7 +21,6 @@ from util import *
 from vm import VirtualMachine
 import argparse
 import subprocess
-import shutil
 import sys
 import tempfile
 
@@ -61,81 +60,78 @@ parser.add_argument("packages", nargs="*",
 
 args = parser.parse_args()
 
-# Collect paackages
-package_dir = tempfile.TemporaryDirectory("")
-
-if DEBUG:
-  print(f"Storing packages in {package_dir.name}")
-
 if len(args.packages) > 0:
-  # Copy packages
-  for package_path in args.packages:
-    if args.no_shim and "shim" in package_path.split("/")[-1]:
-      print("Warning: Got shim package and --no-shim at once")
-    shutil.copy(package_path, package_dir.name)
+  # Packages are already in the filesystem
+  package_paths = args.packages
 else:
+  # Create tempdir
+  package_dir = tempfile.TemporaryDirectory("")
+  if DEBUG:
+    print(f"Downloading packages to {package_dir.name}")
   # Download packages
-  download_packages(
-    PER_ARCH_FW_PACKAGES[(args.arch, args.firmware)], package_dir.name)
+  download_packages(PER_ARCH_FW_PACKAGES[(args.arch, args.firmware)],
+    package_dir.name)
+  # List package file paths
+  package_paths = [
+    os.path.join(package_dir.name, package_filename)
+      for package_filename in os.listdir(package_dir.name)
+  ]
 
 # Create virtual machine
 vm = VirtualMachine(args.release,
                     args.arch,
                     args.firmware,
-                    args.secboot,
-                    package_dir.name)
+                    args.secboot)
 
-def do_login(proc):
-  proc.expect("login: ")
-  proc.sendline(USERNAME)
-  proc.expect("Password: ")
-  proc.sendline(PASSWORD)
+def bootvm():
+  # Wait for VM to start and cloud-init to apply
+  vm.start()
+  vm.waitboot()
 
-def do_shell(proc, cmd):
-  proc.expect("# ")
-  proc.sendline(cmd)
+def rebootvm():
+  # Wait for successful reboot
+  vm.run_cmd(["reboot"])
+  vm.waitboot()
 
-# Test #1: make sure we can boot and log in
-def test1(proc):
-  do_login(proc)
-  do_shell(proc, "poweroff")
+def shutdownvm():
+  # Wait for successful shutdown
+  vm.run_cmd(["poweroff"])
+  vm.waitshutdown()
 
-# Test #2: install new packages
-def test2(proc):
-  # Login
-  do_login(proc)
+def purgesigned():
+  # Purge signed packages if in unsigned mode
+  # We do this to make doubly sure the new GRUB is the only
+  # thing in the boot path.
+  # Note that this shouldn't be confused with running snakeoil signed
+  # shim and GRUB for testing.
+  vm.run_cmd(["apt", "purge", "--allow-remove-essential", "--yes",
+                "grub-*-signed", "shim-signed"])
+  # Also remove the EFI directoiry from the ESP to make sure no previous
+  # shim remains
+  vm.run_cmd(["rm", "-r", "/boot/efi/EFI"])
 
-  if args.no_shim:
-    # Purge signed packages if in unsigned mode
-    # We do this to make doubly sure the new GRUB is the only
-    # thing in the boot path.
-    # Note that this shouldn't be confused with running snakeoil signed
-    # shim and GRUB for testing.
-    do_shell(proc, "apt purge --allow-remove-essential -y grub-*-signed shim-signed")
-    do_shell(proc, "rm -r /boot/efi/*")
+def installnew():
+  # Copy packages to VM
+  vm.copy_files(package_paths, "/tmp/")
+  # Install packages
+  vm.run_cmd(["apt", "install", "--yes", "/tmp/*.deb"])
+  # Install new GRUB
+  vm.run_cmd(["grub-install"])
 
-  # Install packages to be tested
-  do_shell(proc, f"mount LABEL={CILABEL} /mnt")
-  do_shell(proc, "apt install -y /mnt/*.deb && echo APTRESULT$?")
-  proc.expect("APTRESULT0\r\r\n")
-  do_shell(proc, "grub-install")
+TASKS = [
+  (lambda: True,
+    bootvm,      "Boot and provision image"),
+  (lambda: args.firmware == Firmware.UEFI and args.no_shim,
+    purgesigned, "Purge signed bootloaders"),
+  (lambda: True,
+    installnew,  "Install new bootloaders"),
+  (lambda: True,
+    rebootvm,    "Reboot with new bootloaders"),
+  (lambda: True,
+    shutdownvm,  "Shut down virtual machine"),
+]
 
-  # Reboot
-  do_shell(proc, "reboot")
-
-  # Login to check for successful reboot, then power off
-  do_login(proc)
-  do_shell(proc, "poweroff")
-
-
-vm.run(test1)
-print("Boot with original packages OK")
-vm.run(test2)
-print("Boot with upgraded packages OK")
-
-# Boot and get an interactive shell when in debug mode
-if DEBUG:
-  def debug(proc):
-    proc.logfile = None
-    proc.interact()
-  vm.run(debug)
+for predicate, do_task, msg in TASKS:
+  if predicate():
+    do_task()
+    print(f"{msg} OK")

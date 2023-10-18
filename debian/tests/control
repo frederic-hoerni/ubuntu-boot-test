@@ -5,7 +5,7 @@ Depends: @,
   shim-signed,
   grub-efi-amd64-signed,
   grub-efi-amd64-bin
-Restrictions: allow-stderr
+Restrictions: allow-stderr, needs-root
 Architecture: amd64
 Features: test-name=uefi-amd64
 
@@ -13,7 +13,7 @@ Test-Command: python3 src/run.py -r $(lsb_release --codename --short) -a amd64 -
 Depends: @,
   qemu-system-x86,
   grub-pc
-Restrictions: allow-stderr
+Restrictions: allow-stderr, needs-root
 Architecture: amd64
 Features: test-name=pc-amd64
 
@@ -24,6 +24,6 @@ Depends: @,
   shim-signed,
   grub-efi-arm64-signed,
   grub-efi-arm64-bin
-Restrictions: allow-stderr
+Restrictions: allow-stderr, needs-root
 Architecture: arm64
 Features: test-name=uefi-arm64

@@ -58,6 +58,17 @@ vmconfig_uefi = {
   }
 }
 
+def ensure_vsock_accessible():
+  lsmod_result = subprocess.run(["lsmod"], stdout=subprocess.PIPE)
+  if b"vhost_vsock" not in lsmod_result.stdout:
+    if os.getuid() != 0:
+      assert False, "Need root to load vhost_vsock"
+    if subprocess.run(["modprobe", "vhost_vsock"]).returncode != 0:
+      assert False, "Failed to load vhost_vsock"
+
+  if not os.access("/dev/vhost-vsock", os.R_OK | os.W_OK):
+    assert False, "/dev/vhost-vsock is not accessible"
+
 def create_cloud_init_seed(dest_path):
   cidata_path = os.path.join(os.path.dirname(sys.argv[0]), "cidata")
   result = subprocess.run(["genisoimage", "-joliet", "-rock", "-quiet",
@@ -68,6 +79,8 @@ class VirtualMachine:
   def __init__(self, release, arch, firmware, secboot):
     if (arch, firmware) not in vmconfig_uefi:
       assert False, f"Unsupported configuration {arch} {firmware}"
+
+    ensure_vsock_accessible()
 
     self._tempdir = tempfile.TemporaryDirectory()
     self._vmpath = self._tempdir.name
@@ -157,5 +170,3 @@ class VirtualMachine:
       src_file_paths +
       [f"root@localhost:{dest_dir_path}"])
     assert result.returncode == 0
-
-

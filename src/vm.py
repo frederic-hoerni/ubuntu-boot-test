@@ -19,8 +19,8 @@
 from config import *
 from util import *
 import os
-import pexpect
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -58,30 +58,10 @@ vmconfig_uefi = {
   }
 }
 
-METADATA = "local-hostname: ubuntu-boot-test"
-
-USERDATA = """#cloud-config
-runcmd:
-  - passwd -d root
-  - sed -i -e '/^#\\?PasswordAuthentication/s/^.*$/PasswordAuthentication yes/' /etc/ssh/sshd_config
-  - sed -i -e '/^#\\?PermitEmptyPasswords/s/^.*$/PermitEmptyPasswords yes/' /etc/ssh/sshd_config
-  - sed -i -e '/^#\\?PermitRootLogin/s/^.*$/PermitRootLogin yes/' /etc/ssh/sshd_config
-  - systemctl restart sshd
-  - echo CLOUD_INIT_DONE > /dev/ttyS0
-"""
-
 def create_cloud_init_seed(dest_path):
-  tempdir = tempfile.TemporaryDirectory()
-  metadata_path = os.path.join(tempdir.name, "meta-data")
-  userdata_path = os.path.join(tempdir.name, "user-data")
-  with open(metadata_path, "w") as f:
-    f.write(METADATA)
-  with open(userdata_path, "w") as f:
-    f.write(USERDATA)
+  cidata_path = os.path.join(os.path.dirname(sys.argv[0]), "cidata")
   result = subprocess.run(["genisoimage", "-joliet", "-rock", "-quiet",
-    "-output", dest_path,
-    "-volid", "cidata",
-    metadata_path, userdata_path])
+    "-output", dest_path, "-volid", "cidata", cidata_path])
   assert result.returncode == 0
 
 class VirtualMachine:
@@ -106,8 +86,9 @@ class VirtualMachine:
     self._cloud_init_seed_path = os.path.join(self._vmpath, "cloud-init.seed")
     create_cloud_init_seed(self._cloud_init_seed_path)
 
-    self._ssh_port = 2222
-    self._firstboot = True
+    self._host_vsock = socket.socket(socket.AF_VSOCK, socket.SOCK_STREAM)
+    self._host_vsock.bind((socket.VMADDR_CID_HOST, 4444))
+    self._host_vsock.listen(10)
 
     if DEBUG:
       print(f"Created VM directory {self._vmpath}")
@@ -124,11 +105,16 @@ class VirtualMachine:
       "-m", self._config["ram"],
       "-M", f"{self._config['machine']},accel={accel_for(self._arch)}",
       "-cpu", f"{self._config['cpu']}",
-      "-serial", "mon:stdio",
       "-nographic",
-      "-netdev", f"user,id=net0,hostfwd=tcp::{self._ssh_port}-:22",
+      "-device", "vhost-vsock-pci,guest-cid=3",
+      "-netdev", "user,id=net0,hostfwd=tcp::2222-:22",
       "-device", "virtio-net-pci,romfile=,netdev=net0"
     ]
+
+    if DEBUG:
+      base_opts += [ "-serial", "mon:stdio" ]
+    else:
+      base_opts += [ "-monitor", "none", "-serial", "none" ]
 
     if self._firmware == Firmware.UEFI:
       fw_opts = [
@@ -145,13 +131,12 @@ class VirtualMachine:
     ]
 
     # Create VM process
-    self._vm_process = pexpect.spawn(" ".join(base_opts + fw_opts + disk_opts))
+    self._vm_process = subprocess.Popen(base_opts + fw_opts + disk_opts)
 
   def waitboot(self):
-    if self._firstboot:
-      self._firstboot = False
-      self._vm_process.expect("CLOUD_INIT_DONE", timeout=1800)
-    self._vm_process.expect("ubuntu-boot-test login: ", timeout=1800)
+    connfd, _ = self._host_vsock.accept()
+    assert connfd.recv(3) == b"RDY"
+    connfd.close()
 
   def waitshutdown(self):
     self._vm_process.wait()
@@ -160,7 +145,7 @@ class VirtualMachine:
     result = subprocess.run(["ssh",
       "-o", "StrictHostKeyChecking=no",
       "-o", "UserKnownHostsFile=/dev/null",
-      "-p", f"{self._ssh_port}",
+      "-p", "2222",
       "root@localhost" ] + args)
     assert result.returncode == 0
 
@@ -168,7 +153,7 @@ class VirtualMachine:
     result = subprocess.run(["scp",
       "-o", "StrictHostKeyChecking=no",
       "-o", "UserKnownHostsFile=/dev/null",
-      "-P", f"{self._ssh_port}"] +
+      "-P", "2222"] +
       src_file_paths +
       [f"root@localhost:{dest_dir_path}"])
     assert result.returncode == 0

@@ -1,0 +1,9 @@
+[Unit]
+Description=ubuntu-boot-test notify.py
+
+[Service]
+ExecStart=python3 /usr/local/bin/notify.py
+Type=oneshot
+
+[Install]
+WantedBy=multi-user.target

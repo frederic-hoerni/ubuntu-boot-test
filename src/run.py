@@ -90,12 +90,12 @@ def bootvm():
 
 def rebootvm():
   # Wait for successful reboot
-  vm.run_cmd(["reboot"])
+  vm.run_cmd(["reboot"], assert_ok=False)
   vm.waitboot()
 
 def shutdownvm():
   # Wait for successful shutdown
-  vm.run_cmd(["poweroff"])
+  vm.run_cmd(["poweroff"], assert_ok=False)
   vm.waitshutdown()
 
 def purgesigned():

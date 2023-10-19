@@ -113,7 +113,7 @@ class VirtualMachine:
       print(f"Created disk image {self._disk_image_path}")
       print(f"Created cloud-init seed {self._cloud_init_seed_path}")
 
-  def start(self):
+  def start(self, snapshot=False):
     base_opts = [self._config["cmd"],
       "-m", self._config["ram"],
       "-M", f"{self._config['machine']},accel={accel_for(self._arch)}",
@@ -140,8 +140,11 @@ class VirtualMachine:
     disk_opts = [
       "-drive", f"file={self._disk_image_path},if=none,id=hdd",
       "-device", f"virtio-blk-pci,drive=hdd,bootindex=0",
-      "-drive", f"file={self._cloud_init_seed_path},if=virtio,format=raw,readonly=on"
+      "-drive", f"file={self._cloud_init_seed_path},if=virtio,format=raw,readonly=on",
     ]
+
+    if snapshot:
+      disk_opts.append("-snapshot")
 
     # Create VM process
     self._vm_process = subprocess.Popen(base_opts + fw_opts + disk_opts)
@@ -154,13 +157,14 @@ class VirtualMachine:
   def waitshutdown(self):
     self._vm_process.wait()
 
-  def run_cmd(self, args):
+  def run_cmd(self, args, assert_ok=True):
     result = subprocess.run(["ssh",
       "-o", "StrictHostKeyChecking=no",
       "-o", "UserKnownHostsFile=/dev/null",
       "-p", "2222",
       "root@localhost" ] + args)
-    assert result.returncode == 0
+    if assert_ok:
+      assert result.returncode == 0
 
   def copy_files(self, src_file_paths, dest_dir_path):
     result = subprocess.run(["scp",

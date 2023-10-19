@@ -24,22 +24,6 @@ import subprocess
 import sys
 import tempfile
 
-# Packages we need for each architecture+firmware combination
-PER_ARCH_FW_PACKAGES = {
-  (Arch.AMD64, Firmware.UEFI): [
-    "shim-signed",
-    "grub-efi-amd64-bin",
-    "grub-efi-amd64-signed"
-  ],
-  (Arch.AMD64, Firmware.PCBIOS): [
-    "grub-pc",
-  ],
-  (Arch.ARM64, Firmware.UEFI): [
-    "shim-signed",
-    "grub-efi-arm64-bin",
-    "grub-efi-arm64-signed"
-  ]
-}
 
 parser = argparse.ArgumentParser(
   prog='ubuntu-boot-test',
@@ -60,7 +44,54 @@ parser.add_argument("packages", nargs="*",
 
 args = parser.parse_args()
 
+# Validate arguments
+
+if args.firmware != Firmware.UEFI and args.secboot != Secboot.NONE:
+  print(f"Firmware {args.firmware} cannot use secboot {args.secboot}",
+        file=sys.stderr)
+  exit(1)
+
+if args.firmware != Firmware.UEFI or args.secboot != Secboot.NONE and \
+    args.no_shim:
+  print(f"--no-shim cannot be used with firmwrae {args.firmware}" \
+         f" and secboot mode {args.secboot}",
+    file=sys.stderr)
+  exit(1)
+
+# Retrieve package set for (arch, firmware, no-shim)
+
+PACKAGE_SETS = {
+  (Arch.AMD64, Firmware.UEFI, True): set(("grub-efi-amd64-bin", )),
+  (Arch.AMD64, Firmware.UEFI, False): set(("shim-signed",
+                                          "grub-efi-amd64-bin",
+                                          "grub-efi-amd64-signed")),
+  (Arch.AMD64, Firmware.PCBIOS, False): set(("grub-pc", )),
+  (Arch.ARM64, Firmware.UEFI, False): set(("shim-signed",
+                                          "grub-efi-arm64-bin",
+                                          "grub-efi-arm64-signed")),
+  (Arch.ARM64, Firmware.UEFI, True): set(("grub-efi-arm64-bin", ))
+}
+
+if (args.arch, args.firmware, args.no_shim) not in PACKAGE_SETS:
+  print(f"Invalid combination of --arch {args.args}, --firmware {args.firmware}"
+    + "--no-shim" if args.no_shim else "", file=sys.stderr)
+  exit(1)
+
+
+package_set = PACKAGE_SETS[(args.arch, args.firmware, args.no_shim)]
+
 if len(args.packages) > 0:
+  # Validate packages
+  actual_package_set = set()
+  for package_path in args.packages:
+    _, filename = os.path.split(package_path)
+    packagename = filename.split("_")[0]
+    actual_package_set.add(packagename)
+  if actual_package_set != package_set:
+    print("Invalid package set provided " \
+          f"(actual {actual_package_set}, expecting {package_set})",
+          file=sys.stderr)
+    exit(1)
   # Packages are already in the filesystem
   package_paths = args.packages
 else:
@@ -69,8 +100,7 @@ else:
   if DEBUG:
     print(f"Downloading packages to {package_dir.name}")
   # Download packages
-  download_packages(PER_ARCH_FW_PACKAGES[(args.arch, args.firmware)],
-    package_dir.name)
+  download_packages(package_set, package_dir.name)
   # List package file paths
   package_paths = [
     os.path.join(package_dir.name, package_filename)

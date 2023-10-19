@@ -7,10 +7,12 @@ Build-Depends: debhelper-compat (= 13)
 
 Package: ubuntu-boot-test
 Architecture: any
-Depends: python3,
-  python3-requests,
-  genisoimage,
+Depends: genisoimage,
   lsb-release,
+  python3,
+  python3-openssl,
+  python3-requests,
+  python3-uefivars,
   ssh,
   ${shlibs:Depends},
   ${misc:Depends}

@@ -18,9 +18,11 @@
 
 from config import *
 from enum import Enum
+from OpenSSL import crypto
 import os
-import subprocess
 import requests
+import struct
+import subprocess
 import tempfile
 
 class Arch(Enum):
@@ -93,3 +95,44 @@ def download_packages(packages, dest_path):
     ["apt-get", "download"] + list(packages),
     cwd=dest_path)
   assert result.returncode == 0, "Failed to download packages"
+
+EFI_CERT_X509_SHA256_GUID = bytes((
+  0x92, 0xa4, 0xd2, 0x3b, 0xc0, 0x96, 0x79, 0x40,
+  0xb4, 0x20, 0xfc, 0xf9, 0x8e, 0xf1, 0x03, 0xed))
+
+SIGNATURE_OWNER_GUID = bytes((
+  0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42,
+  0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42))
+
+def asn1_to_efi(asn1_data):
+  signature_list_size = len(EFI_CERT_X509_SHA256_GUID) + 4 + 4 + 4 + \
+                          16 + len(asn1_data)
+  signature_header_size = 0
+  signature_size = 16 + len(asn1_data)
+  return EFI_CERT_X509_SHA256_GUID + \
+         struct.pack("<III", signature_list_size,
+                              signature_header_size,
+                              signature_size) + \
+         SIGNATURE_OWNER_GUID + asn1_data
+
+def gen_efi_signkey():
+  """Generate an EFI signing pair, where the pubkey is an ESL,
+      and the private key is a PEM
+  """
+  key = crypto.PKey()
+  key.generate_key(crypto.TYPE_RSA, 4096)
+
+  pem_key = crypto.dump_privatekey(crypto.FILETYPE_PEM, key)
+
+  cert = crypto.X509()
+  cert.get_subject().CN = "ubuntu-boot-test"
+  cert.gmtime_adj_notBefore(0)            # start now
+  cert.gmtime_adj_notAfter(24 * 60 * 60)  # 1 day from now
+  cert.set_issuer(cert.get_subject())
+  cert.set_pubkey(key)
+  cert.sign(key, "sha256")
+
+  asn1_cert = crypto.dump_certificate(crypto.FILETYPE_ASN1, cert)
+  esl_cert = asn1_to_efi(asn1_cert)
+
+  return (pem_key, esl_cert)

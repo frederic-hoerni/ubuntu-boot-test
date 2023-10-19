@@ -18,8 +18,11 @@
 
 from config import *
 from util import *
+from pyuefivars.edk2 import EDK2UEFIVarStore
+import atexit
 import os
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -113,21 +116,18 @@ class VirtualMachine:
       print(f"Created disk image {self._disk_image_path}")
       print(f"Created cloud-init seed {self._cloud_init_seed_path}")
 
-  def start(self, snapshot=False):
+  def start(self, ephermal_snapshot=False):
     base_opts = [self._config["cmd"],
       "-m", self._config["ram"],
       "-M", f"{self._config['machine']},accel={accel_for(self._arch)}",
       "-cpu", f"{self._config['cpu']}",
       "-nographic",
+      "-monitor", "none",
+      "-serial", "file:/dev/tty" if DEBUG else "none",
       "-device", "vhost-vsock-pci,guest-cid=3",
       "-netdev", "user,id=net0,hostfwd=tcp::2222-:22",
       "-device", "virtio-net-pci,romfile=,netdev=net0"
     ]
-
-    if DEBUG:
-      base_opts += [ "-serial", "mon:stdio" ]
-    else:
-      base_opts += [ "-monitor", "none", "-serial", "none" ]
 
     if self._firmware == Firmware.UEFI:
       fw_opts = [
@@ -143,11 +143,19 @@ class VirtualMachine:
       "-drive", f"file={self._cloud_init_seed_path},if=virtio,format=raw,readonly=on",
     ]
 
-    if snapshot:
+    if ephermal_snapshot:
       disk_opts.append("-snapshot")
 
     # Create VM process
     self._vm_process = subprocess.Popen(base_opts + fw_opts + disk_opts)
+
+    # Make sure VM exits if we error out
+    def kill_vm_process():
+      try:
+        os.kill(self._vm_process.pid, signal.SIGINT)
+      except:
+        pass
+    atexit.register(kill_vm_process)
 
   def waitboot(self):
     connfd, _ = self._host_vsock.accept()

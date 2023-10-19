@@ -24,7 +24,9 @@ import subprocess
 import sys
 import tempfile
 
+TEMPDIR = tempfile.TemporaryDirectory("")
 
+# Parse arguments
 parser = argparse.ArgumentParser(
   prog='ubuntu-boot-test',
   description='End-to-end Ubuntu bootloader test')
@@ -45,15 +47,14 @@ parser.add_argument("packages", nargs="*",
 args = parser.parse_args()
 
 # Validate arguments
-
 if args.firmware != Firmware.UEFI and args.secboot != Secboot.NONE:
   print(f"Firmware {args.firmware} cannot use secboot {args.secboot}",
         file=sys.stderr)
   exit(1)
 
-if args.firmware != Firmware.UEFI or args.secboot != Secboot.NONE and \
+if (args.firmware != Firmware.UEFI or args.secboot != Secboot.NONE) and \
     args.no_shim:
-  print(f"--no-shim cannot be used with firmwrae {args.firmware}" \
+  print(f"--no-shim cannot be used with firmware {args.firmware}" \
          f" and secboot mode {args.secboot}",
     file=sys.stderr)
   exit(1)
@@ -95,16 +96,13 @@ if len(args.packages) > 0:
   # Packages are already in the filesystem
   package_paths = args.packages
 else:
-  # Create tempdir
-  package_dir = tempfile.TemporaryDirectory("")
-  if DEBUG:
-    print(f"Downloading packages to {package_dir.name}")
   # Download packages
-  download_packages(package_set, package_dir.name)
+  download_packages(package_set, TEMPDIR.name)
   # List package file paths
   package_paths = [
-    os.path.join(package_dir.name, package_filename)
-      for package_filename in os.listdir(package_dir.name)
+    os.path.join(TEMPDIR.name, package_filename)
+      for package_filename in os.listdir(TEMPDIR.name)
+      if package_filename.endswith("deb")
   ]
 
 # Create virtual machine
@@ -151,7 +149,7 @@ def installnew():
 TASKS = [
   (lambda: True,
     bootvm,      "Boot and provision image"),
-  (lambda: args.firmware == Firmware.UEFI and args.no_shim,
+  (lambda: args.no_shim,
     purgesigned, "Purge signed bootloaders"),
   (lambda: True,
     installnew,  "Install new bootloaders"),

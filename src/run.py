@@ -111,6 +111,8 @@ vm = VirtualMachine(args.release,
                     args.firmware,
                     args.secboot)
 
+vm.write_efivar(EFI_IMAGE_SECURITY_DATABASE_GUID, "db", b"", append=False)
+
 def bootvm():
   # Wait for VM to start and cloud-init to apply
   vm.start()

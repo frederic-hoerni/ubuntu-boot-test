@@ -116,6 +116,23 @@ class VirtualMachine:
       print(f"Created disk image {self._disk_image_path}")
       print(f"Created cloud-init seed {self._cloud_init_seed_path}")
 
+  def write_efivar(self, guid, name, data, append=True):
+    # Read current variable store
+    with open(self._uefi_vars_path, "rb") as f:
+      vars_data = f.read()
+    # Find existing db
+    varstore = EDK2UEFIVarStore(vars_data)
+    for idx, var in enumerate(varstore.vars):
+      if var.guid == guid and var.name == name:
+        if append:
+          var.data += data
+        else:
+          var.data = data
+        break
+    # Dump variable store back out
+    with open(self._uefi_vars_path, "wb") as f:
+      f.write(bytes(varstore))
+
   def start(self, ephermal_snapshot=False):
     base_opts = [self._config["cmd"],
       "-m", self._config["ram"],

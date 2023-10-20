@@ -18,6 +18,7 @@
 
 from config import *
 from util import *
+from pyuefivars import UEFIVar
 from pyuefivars.edk2 import EDK2UEFIVarStore
 import atexit
 import os
@@ -36,9 +37,8 @@ vmconfig_uefi = {
     "ram": "2048",
     "fw_code": "/usr/share/OVMF/OVMF_CODE.fd",
     "fw_vars_template": {
-      Secboot.NONE: "/usr/share/OVMF/OVMF_VARS.fd",
-      Secboot.MS: "/usr/share/OVMF/OVMF_VARS.ms.fd",
-      Secboot.SNAKEOIL: "/usr/share/OVMF/OVMF_VARS.snakeoil.fd"
+      False: "/usr/share/OVMF/OVMF_VARS.fd",
+      True: "/usr/share/OVMF/OVMF_VARS.ms.fd"
     }
   },
   (Arch.AMD64, Firmware.PCBIOS): {
@@ -54,9 +54,8 @@ vmconfig_uefi = {
     "ram": "2048",
     "fw_code": "/usr/share/AAVMF/AAVMF_CODE.fd",
     "fw_vars_template": {
-      Secboot.NONE: "/usr/share/AAVMF/AAVMF_VARS.fd",
-      Secboot.MS: "/usr/share/AAVMF/AAVMF_VARS.ms.fd",
-      Secboot.SNAKEOIL: "/usr/share/AAVMF/AAVMF_VARS.snakeoil.fd"
+      False: "/usr/share/AAVMF/AAVMF_VARS.fd",
+      True: "/usr/share/AAVMF/AAVMF_VARS.ms.fd"
     }
   }
 }
@@ -120,15 +119,20 @@ class VirtualMachine:
     # Read current variable store
     with open(self._uefi_vars_path, "rb") as f:
       vars_data = f.read()
-    # Find existing db
+    # Find existing variable
     varstore = EDK2UEFIVarStore(vars_data)
+    found = False
     for idx, var in enumerate(varstore.vars):
       if var.guid == guid and var.name == name:
         if append:
           var.data += data
         else:
           var.data = data
+        found = True
         break
+    # Create new variable
+    if not found:
+      varstore.vars.append(UEFIVar(name, data, guid, 3))
     # Dump variable store back out
     with open(self._uefi_vars_path, "wb") as f:
       f.write(bytes(varstore))
@@ -140,7 +144,7 @@ class VirtualMachine:
       "-cpu", f"{self._config['cpu']}",
       "-nographic",
       "-monitor", "none",
-      "-serial", "file:/dev/tty" if DEBUG else "none",
+      "-serial", "stdio" if DEBUG else "none", #file:/dev/tty
       "-device", "vhost-vsock-pci,guest-cid=3",
       "-netdev", "user,id=net0,hostfwd=tcp::2222-:22",
       "-device", "virtio-net-pci,romfile=,netdev=net0"
@@ -198,4 +202,13 @@ class VirtualMachine:
       "-P", "2222"] +
       src_file_paths +
       [f"root@localhost:{dest_dir_path}"])
+    assert result.returncode == 0
+
+  def get_files(self, src_file_paths, dest_dir_path):
+    result = subprocess.run(["scp",
+      "-o", "StrictHostKeyChecking=no",
+      "-o", "UserKnownHostsFile=/dev/null",
+      "-P", "2222"] +
+      [ f"root@localhost:{src_file_path}" for src_file_path in src_file_paths ] +
+      [ dest_dir_path ])
     assert result.returncode == 0

@@ -13,6 +13,7 @@ Depends: genisoimage,
   python3-openssl,
   python3-requests,
   python3-uefivars,
+  sbsigntool,
   ssh,
   ${shlibs:Depends},
   ${misc:Depends}

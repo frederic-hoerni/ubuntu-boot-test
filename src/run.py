@@ -20,6 +20,7 @@ from config import *
 from util import *
 from vm import VirtualMachine
 import argparse
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -109,9 +110,30 @@ else:
 vm = VirtualMachine(args.release,
                     args.arch,
                     args.firmware,
-                    args.secboot)
+                    args.secboot != Secboot.NONE)
 
-vm.write_efivar(EFI_IMAGE_SECURITY_DATABASE_GUID, "db", b"", append=False)
+def setupsbkeys():
+  # db
+  pem_priv, pem_cert, esl_cert = gen_efi_signkey()
+  with open(os.path.join(TEMPDIR.name, "db.key"), "wb") as f:
+    f.write(pem_priv)
+  with open(os.path.join(TEMPDIR.name, "db.pem"), "wb") as f:
+    f.write(pem_cert)
+  vm.write_efivar(EFI_IMAGE_SECURITY_DATABASE_GUID, "db", esl_cert, append=False)
+
+  # MokList
+  pem_priv, pem_cert, esl_cert = gen_efi_signkey()
+  with open(os.path.join(TEMPDIR.name, "MokList.key"), "wb") as f:
+    f.write(pem_priv)
+  with open(os.path.join(TEMPDIR.name, "MokList.pem"), "wb") as f:
+    f.write(pem_cert)
+  vm.write_efivar(SHIM_LOCK_GUID, "MokList", esl_cert, append=False)
+
+def disablesb():
+  vm.write_efivar(SECURE_BOOT_ENABLE_GUID, "SecureBootEnable", b"\x00", append=False)
+
+def enablesb():
+  vm.write_efivar(SECURE_BOOT_ENABLE_GUID, "SecureBootEnable", b"\x01", append=False)
 
 def bootvm():
   # Wait for VM to start and cloud-init to apply
@@ -148,17 +170,59 @@ def installnew():
   # Install new GRUB
   vm.run_cmd(["grub-install"])
 
+def cleansigs(path):
+  # Remove exisiting signatures from the binary
+  while subprocess.run(["sbattach", "--remove", path]).returncode == 0:
+    pass
+
+def sbsign_file(with_key, path):
+  cleansigs(path)
+  result = subprocess.run(["sbsign",
+    "--key", os.path.join(TEMPDIR.name, f"{with_key}.key"),
+    "--cert", os.path.join(TEMPDIR.name, f"{with_key}.pem"),
+    "--output", path,
+    path])
+  assert result.returncode == 0, f"Failed to sign {path}"
+
+def sbsignnew():
+  if args.arch == Arch.AMD64:
+    PATHS = [ ("db", "/boot/efi/EFI/ubuntu/shimx64.efi"),
+              ("MokList", "/boot/efi/EFI/ubuntu/grubx64.efi") ]
+  else:
+    PATHS = [ ("db", "/boot/efi/EFI/ubuntu/shima64.efi"),
+              ("MokList", "/boot/efi/EFI/ubuntu/gruba64.efi") ]
+
+  # Get files from VM
+  vm.get_files(list(map(lambda x: x[1], PATHS)), TEMPDIR.name)
+
+  for with_key, remote_path in PATHS:
+    local_path = os.path.join(TEMPDIR.name, os.path.split(remote_path)[-1])
+    # Sign
+    sbsign_file(with_key, local_path)
+    # Write back
+    vm.copy_files([ local_path ], remote_path)
+
 TASKS = [
+  (lambda: args.secboot == Secboot.SIGN,
+    setupsbkeys,  "Generate and enrol Secure Boot keys"),
+  (lambda: args.secboot == Secboot.SIGN,
+    disablesb,    "Disable Secure Boot"),
   (lambda: True,
-    bootvm,      "Boot and provision image"),
+    bootvm,       "Boot and provision image"),
   (lambda: args.no_shim,
-    purgesigned, "Purge signed bootloaders"),
+    purgesigned,  "Purge signed bootloaders"),
   (lambda: True,
-    installnew,  "Install new bootloaders"),
+    installnew,   "Install new bootloaders"),
+  (lambda: args.secboot == Secboot.SIGN,
+    sbsignnew,    "Sign new bootloaders"),
   (lambda: True,
-    rebootvm,    "Reboot with new bootloaders"),
+    shutdownvm,   "Shut down virtual machine"),
+  (lambda: args.secboot == Secboot.SIGN,
+    enablesb,     "Enable Secure Boot"),
   (lambda: True,
-    shutdownvm,  "Shut down virtual machine"),
+    bootvm,       "Boot with new bootloaders"),
+  (lambda: True,
+    shutdownvm,   "Shut down virtual machine"),
 ]
 
 for predicate, do_task, msg in TASKS:

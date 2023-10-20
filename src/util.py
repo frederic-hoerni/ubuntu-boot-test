@@ -47,7 +47,7 @@ class Secboot(Enum):
   """Secure Boot configuration
   """
   NONE      = "none"
-  SNAKEOIL  = "snakeoil"
+  SIGN      = "sign"
   MS        = "ms"
 
   def __str__(self):
@@ -96,13 +96,21 @@ def download_packages(packages, dest_path):
     cwd=dest_path)
   assert result.returncode == 0, "Failed to download packages"
 
-EFI_CERT_X509_SHA256_GUID = bytes((
-  0x92, 0xa4, 0xd2, 0x3b, 0xc0, 0x96, 0x79, 0x40,
-  0xb4, 0x20, 0xfc, 0xf9, 0x8e, 0xf1, 0x03, 0xed))
+EFI_CERT_X509_GUID = bytes((
+  0xa1, 0x59, 0xc0, 0xa5, 0xe4, 0x94, 0xa7, 0x4a,
+  0x87, 0xb5, 0xab, 0x15, 0x5c, 0x2b, 0xf0, 0x72))
 
-EFI_GLOBAL_VARIABLE_GUID = bytes.fromhex("61 df e4 8b ca 93 d2 11 aa 0d 00 e0 98 03 2b 8c")
+EFI_GLOBAL_VARIABLE_GUID = bytes((
+  0x61, 0xdf, 0xe4, 0x8b, 0xca, 0x93, 0xd2, 0x11,
+  0xaa, 0x0d, 0x00, 0xe0, 0x98, 0x03, 0x2b, 0x8c))
 
-EFI_IMAGE_SECURITY_DATABASE_GUID = bytes.fromhex("cb b2 19 d7 3a 3d 96 45 a3 bc da d0 0e 67 65 6f")
+EFI_IMAGE_SECURITY_DATABASE_GUID = bytes((
+  0xcb, 0xb2, 0x19, 0xd7, 0x3a, 0x3d, 0x96, 0x45,
+  0xa3, 0xbc, 0xda, 0xd0, 0x0e, 0x67, 0x65, 0x6f))
+
+SECURE_BOOT_ENABLE_GUID = bytes((
+  0xc7, 0x0b, 0xa3, 0xf0, 0x08, 0xaf, 0x56, 0x45,
+  0x99, 0xc4, 0x00, 0x10, 0x09, 0xc9, 0x3a, 0x44))
 
 SHIM_LOCK_GUID = bytes((
   0x50, 0xab, 0x5d, 0x60, 0x46, 0xe0, 0x00, 0x43,
@@ -113,34 +121,37 @@ SIGNATURE_OWNER_GUID = bytes((
   0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42))
 
 def asn1_to_efi(asn1_data):
-  signature_list_size = len(EFI_CERT_X509_SHA256_GUID) + 4 + 4 + 4 + \
+  signature_list_size = 16 + 4 + 4 + 4 + \
                           16 + len(asn1_data)
   signature_header_size = 0
   signature_size = 16 + len(asn1_data)
-  return EFI_CERT_X509_SHA256_GUID + \
+  return EFI_CERT_X509_GUID + \
          struct.pack("<III", signature_list_size,
                               signature_header_size,
                               signature_size) + \
          SIGNATURE_OWNER_GUID + asn1_data
 
 def gen_efi_signkey():
-  """Generate an EFI signing pair, where the pubkey is an ESL,
-      and the private key is a PEM
+  """Generate an X509 signing key and certificate
   """
   key = crypto.PKey()
   key.generate_key(crypto.TYPE_RSA, 4096)
 
-  pem_key = crypto.dump_privatekey(crypto.FILETYPE_PEM, key)
+  pem_private_key = crypto.dump_privatekey(crypto.FILETYPE_PEM, key)
 
   cert = crypto.X509()
   cert.get_subject().CN = "ubuntu-boot-test"
+  cert.set_serial_number(42)
   cert.gmtime_adj_notBefore(0)            # start now
   cert.gmtime_adj_notAfter(24 * 60 * 60)  # 1 day from now
   cert.set_issuer(cert.get_subject())
   cert.set_pubkey(key)
   cert.sign(key, "sha256")
 
-  asn1_cert = crypto.dump_certificate(crypto.FILETYPE_ASN1, cert)
-  esl_cert = asn1_to_efi(asn1_cert)
+  pem_certificate = crypto.dump_certificate(
+    crypto.FILETYPE_PEM, cert)
+  esl_certificate = asn1_to_efi(
+    crypto.dump_certificate(crypto.FILETYPE_ASN1, cert))
 
-  return (pem_key, esl_cert)
+  return (pem_private_key, pem_certificate, esl_certificate)
+

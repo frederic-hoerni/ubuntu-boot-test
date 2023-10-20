@@ -184,13 +184,15 @@ def sbsign_file(with_key, path):
     path])
   assert result.returncode == 0, f"Failed to sign {path}"
 
+if args.arch == Arch.AMD64:
+  SHIM_PATH = "/boot/efi/EFI/ubuntu/shimx64.efi"
+  GRUB_PATH = "/boot/efi/EFI/ubuntu/grubx64.efi"
+else:
+  SHIM_PATH = "/boot/efi/EFI/ubuntu/shima64.efi"
+  GRUB_PATH = "/boot/efi/EFI/ubuntu/gruba64.efi"
+
 def sbsignnew():
-  if args.arch == Arch.AMD64:
-    PATHS = [ ("db", "/boot/efi/EFI/ubuntu/shimx64.efi"),
-              ("MokList", "/boot/efi/EFI/ubuntu/grubx64.efi") ]
-  else:
-    PATHS = [ ("db", "/boot/efi/EFI/ubuntu/shima64.efi"),
-              ("MokList", "/boot/efi/EFI/ubuntu/gruba64.efi") ]
+  PATHS = [ ("db", SHIM_PATH), ("MokList", GRUB_PATH) ]
 
   # Get files from VM
   vm.get_files(list(map(lambda x: x[1], PATHS)), TEMPDIR.name)
@@ -201,6 +203,24 @@ def sbsignnew():
     sbsign_file(with_key, local_path)
     # Write back
     vm.copy_files([ local_path ], remote_path)
+
+def ephemeralboot():
+  vm.start(ephemeral_snapshot=True)
+  vm.waitboot()
+
+def sbstripshim():
+  # Boot as an ephermeral snapshot
+  ephemeralboot()
+  # Clean signatures from shim
+  vm.get_files([SHIM_PATH], TEMPDIR.name)
+  local_shim_path = os.path.join(TEMPDIR.name, os.path.split(SHIM_PATH)[-1])
+  cleansigs(local_shim_path)
+  vm.copy_files([local_shim_path], SHIM_PATH)
+  # Reboot and verify that we get "Access denied"
+  rebootvm()
+
+  # Shut down
+  shutdownvm()
 
 TASKS = [
   (lambda: args.secboot == Secboot.SIGN,
@@ -223,6 +243,8 @@ TASKS = [
     bootvm,       "Boot with new bootloaders"),
   (lambda: True,
     shutdownvm,   "Shut down virtual machine"),
+  (lambda: args.secboot != Secboot.NONE,
+    sbstripshim,  "Secure Boot: stripping shim signature"),
 ]
 
 for predicate, do_task, msg in TASKS:

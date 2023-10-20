@@ -137,7 +137,7 @@ class VirtualMachine:
     with open(self._uefi_vars_path, "wb") as f:
       f.write(bytes(varstore))
 
-  def start(self, ephermal_snapshot=False):
+  def start(self, ephemeral_snapshot=False):
     base_opts = [self._config["cmd"],
       "-m", self._config["ram"],
       "-M", f"{self._config['machine']},accel={accel_for(self._arch)}",
@@ -164,7 +164,7 @@ class VirtualMachine:
       "-drive", f"file={self._cloud_init_seed_path},if=virtio,format=raw,readonly=on",
     ]
 
-    if ephermal_snapshot:
+    if ephemeral_snapshot:
       disk_opts.append("-snapshot")
 
     # Create VM process

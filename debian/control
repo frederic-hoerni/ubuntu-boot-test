@@ -8,13 +8,15 @@ Build-Depends: debhelper-compat (= 13)
 Package: ubuntu-boot-test
 Architecture: any
 Depends: genisoimage,
-  lsb-release,
-  python3,
-  python3-openssl,
-  python3-requests,
-  python3-uefivars,
-  sbsigntool,
-  ssh,
-  ${shlibs:Depends},
-  ${misc:Depends}
-Description: End-to-end test of the Ubuntu bootloader stack
+	lsb-release,
+	python3,
+	python3-openssl,
+	python3-requests,
+	python3-uefivars,
+	sbsigntool,
+	ssh,
+	${shlibs:Depends},
+	${misc:Depends}
+Description: autopkgtests for the Ubuntu bootloader stack
+	This package contains an automated testing framework for the Ubuntu
+	bootloader stack.

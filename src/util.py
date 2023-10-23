@@ -23,7 +23,9 @@ import os
 import requests
 import struct
 import subprocess
+import sys
 import tempfile
+
 
 class Arch(Enum):
   """Processor architecture
@@ -90,11 +92,43 @@ def download_image(release, arch, dest_path):
     for chunk in resp.iter_content(chunk_size=4096):
       f.write(chunk)
 
+def validate_packages(expected_package_set, package_paths):
+  actual_package_set = set()
+
+  for package_path in package_paths:
+    _, filename = os.path.split(package_path)
+    actual_package_set.add(filename.split("_")[0])
+
+  if actual_package_set != expected_package_set:
+    print("Invalid package set provided " \
+          f"(actual {actual_package_set}, expecting {expected_package_set})",
+          file=sys.stderr)
+    return False
+
+  return True
+
 def download_packages(packages, dest_path):
   result = subprocess.run(
     ["apt-get", "download"] + list(packages),
     cwd=dest_path)
   assert result.returncode == 0, "Failed to download packages"
+
+def prepare_packages(tempdir_path, expected_package_set, cmdline_package_paths):
+  if len(cmdline_package_paths) > 0:
+    # Validate packages
+    if not validate_packages(expected_package_set, cmdline_package_paths):
+      exit(1)
+    # Packages are already in the filesystem
+    return cmdline_package_paths
+  else:
+    # Download packages
+    download_packages(expected_package_set, tempdir_path)
+    # List package file paths
+    return [
+      os.path.join(tempdir_path, package_filename)
+      for package_filename in os.listdir(tempdir_path)
+      if package_filename.endswith("deb")
+    ]
 
 EFI_CERT_X509_GUID = bytes((
   0xa1, 0x59, 0xc0, 0xa5, 0xe4, 0x94, 0xa7, 0x4a,

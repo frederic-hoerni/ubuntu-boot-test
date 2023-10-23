@@ -1,4 +1,4 @@
-Test-Command: python3 src/run.py -r $(lsb_release --codename --short) -a amd64 -f uefi
+Test-Command: python3 src/test_uefi_shim.py -r $(lsb_release --codename --short) -a amd64 -s sign
 Depends: @,
   qemu-system-x86,
   ovmf,
@@ -7,17 +7,9 @@ Depends: @,
   grub-efi-amd64-bin
 Restrictions: allow-stderr, needs-root
 Architecture: amd64
-Features: test-name=uefi-amd64
+Features: test-name=uefi-shim-amd64
 
-Test-Command: python3 src/run.py -r $(lsb_release --codename --short) -a amd64 -f pcbios
-Depends: @,
-  qemu-system-x86,
-  grub-pc
-Restrictions: allow-stderr, needs-root
-Architecture: amd64
-Features: test-name=pc-amd64
-
-Test-Command: python3 src/run.py -r $(lsb_release --codename --short) -a arm64 -f uefi
+Test-Command: python3 src/test_uefi_sb.py -r $(lsb_release --codename --short) -a arm64 -s sign
 Depends: @,
   qemu-system-arm,
   qemu-efi-aarch64,
@@ -26,4 +18,12 @@ Depends: @,
   grub-efi-arm64-bin
 Restrictions: allow-stderr, needs-root
 Architecture: arm64
-Features: test-name=uefi-arm64
+Features: test-name=uefi-shim-arm64
+
+Test-Command: python3 src/test_pcbios.py -r $(lsb_release --codename --short) -a amd64
+Depends: @,
+  qemu-system-x86,
+  grub-pc
+Restrictions: allow-stderr, needs-root
+Architecture: amd64
+Features: test-name=pcbios-amd64

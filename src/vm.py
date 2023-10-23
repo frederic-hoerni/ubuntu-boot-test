@@ -144,7 +144,7 @@ class VirtualMachine:
       "-cpu", f"{self._config['cpu']}",
       "-nographic",
       "-monitor", "none",
-      "-serial", "stdio" if DEBUG else "none", #file:/dev/tty
+      "-serial", "file:/dev/tty" if DEBUG else "none",
       "-device", "vhost-vsock-pci,guest-cid=3",
       "-netdev", "user,id=net0,hostfwd=tcp::2222-:22",
       "-device", "virtio-net-pci,romfile=,netdev=net0"

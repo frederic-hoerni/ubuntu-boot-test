@@ -160,6 +160,24 @@ def sbstripgrub():
   vm.forceshutdown()
   vm.waitshutdown()
 
+def sbstripkernel():
+  # Boot as an ephemeral snapshot
+  ephemeralboot()
+  # Find all kernels
+  kernel_paths = vm.run_cmd(["find", "/boot", "-name", "vmlinuz-*"]).splitlines()
+  if DEBUG:
+    print(f"Found kernels: {kernel_paths}")
+  # Clean signatures
+  for kernel_path in kernel_paths:
+    with vm.remote_file(kernel_path) as rf:
+      cleansigs(rf.local_path)
+  # Reboot and wait for error from GRUB
+  vm.run_cmd(["reboot"], assert_ok=False)
+  vm.waitserial(b"error: bad shim signature.")
+  # Force shutdown VM
+  vm.forceshutdown()
+  vm.waitshutdown()
+
 TASKS = [
   (lambda: args.secboot == Secboot.SIGN,
     setupsbkeys,  "Generate and enrol Secure Boot keys"),
@@ -183,6 +201,8 @@ TASKS = [
    sbstripshim,   "Secure Boot: stripping shim signature"),
   (lambda: args.secboot != Secboot.NONE,
    sbstripgrub,   "Secure Boot: stripping GRUB signature"),
+  (lambda: args.secboot != Secboot.NONE,
+   sbstripkernel, "Secure Boot: stripping kernel signature"),
 ]
 
 for predicate, do_task, msg in TASKS:

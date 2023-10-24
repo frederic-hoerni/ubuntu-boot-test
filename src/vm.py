@@ -215,9 +215,10 @@ class VirtualMachine:
       "-o", "StrictHostKeyChecking=no",
       "-o", "UserKnownHostsFile=/dev/null",
       "-p", "2222",
-      "root@localhost" ] + args)
+      "root@localhost" ] + args, capture_output=True)
     if assert_ok:
       assert result.returncode == 0
+    return result.stdout.decode()
 
   def copy_files(self, src_file_paths, dest_dir_path):
     result = subprocess.run(["scp",

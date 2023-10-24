@@ -24,7 +24,6 @@ import requests
 import struct
 import subprocess
 import sys
-import tempfile
 
 
 class Arch(Enum):
@@ -188,4 +187,3 @@ def gen_efi_signkey():
     crypto.dump_certificate(crypto.FILETYPE_ASN1, cert))
 
   return (pem_private_key, pem_certificate, esl_certificate)
-

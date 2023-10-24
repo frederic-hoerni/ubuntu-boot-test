@@ -34,6 +34,11 @@ PACKAGE_SETS = {
                    "grub-efi-arm64-signed")),
 }
 
+EFI_SUFFIXES = {
+  Arch.AMD64: "x64.efi",
+  Arch.ARM64: "a64.efi"
+}
+
 # Parse arguments
 parser = argparse.ArgumentParser(prog="test_uefi_shim.py",
   description="UEFI shim boot test")
@@ -115,43 +120,45 @@ def sbsign_file(with_key, path):
     path])
   assert result.returncode == 0, f"Failed to sign {path}"
 
-if args.arch == Arch.AMD64:
-  SHIM_PATH = "/boot/efi/EFI/ubuntu/shimx64.efi"
-  GRUB_PATH = "/boot/efi/EFI/ubuntu/grubx64.efi"
-else:
-  SHIM_PATH = "/boot/efi/EFI/ubuntu/shima64.efi"
-  GRUB_PATH = "/boot/efi/EFI/ubuntu/gruba64.efi"
+SHIM_PATH = f"/boot/efi/EFI/ubuntu/shim{EFI_SUFFIXES[args.arch]}"
+GRUB_PATH = f"/boot/efi/EFI/ubuntu/grub{EFI_SUFFIXES[args.arch]}"
 
 def sbsignnew():
-  PATHS = [ ("db", SHIM_PATH), ("MokList", GRUB_PATH) ]
+  SIGN_PATHS = [ ("db", SHIM_PATH), ("MokList", GRUB_PATH) ]
 
-  # Get files from VM
-  vm.get_files(list(map(lambda x: x[1], PATHS)), TEMPDIR.name)
-
-  for with_key, remote_path in PATHS:
-    local_path = os.path.join(TEMPDIR.name, os.path.split(remote_path)[-1])
-    # Sign
-    sbsign_file(with_key, local_path)
-    # Write back
-    vm.copy_files([ local_path ], remote_path)
+  for with_key, remote_path in SIGN_PATHS:
+    with vm.remote_file(remote_path) as rf:
+      sbsign_file(with_key, rf.local_path)
 
 def ephemeralboot():
   vm.start(ephemeral_snapshot=True)
   vm.waitboot()
 
 def sbstripshim():
-  # Boot as an ephermeral snapshot
+  # Boot as an ephemeral snapshot
   ephemeralboot()
-  # Clean signatures from shim
-  vm.get_files([SHIM_PATH], TEMPDIR.name)
-  local_shim_path = os.path.join(TEMPDIR.name, os.path.split(SHIM_PATH)[-1])
-  cleansigs(local_shim_path)
-  vm.copy_files([local_shim_path], SHIM_PATH)
+  # Clean signatures
+  with vm.remote_file(SHIM_PATH) as rf:
+    cleansigs(rf.local_path)
   # Reboot and verify that we get "Access denied"
-  rebootvm()
+  vm.run_cmd(["reboot"], assert_ok=False)
+  vm.waitserial(f"shim{EFI_SUFFIXES[args.arch]}: Access Denied".encode())
+  # Force shutdown VM
+  vm.forceshutdown()
+  vm.waitshutdown()
 
-  # Shut down
-  shutdownvm()
+def sbstripgrub():
+  # Boot as an ephemeral snapshot
+  ephemeralboot()
+  # Clean signatures
+  with vm.remote_file(GRUB_PATH) as rf:
+    cleansigs(rf.local_path)
+  # Reboot and wait for error from MokManager
+  vm.run_cmd(["reboot"], assert_ok=False)
+  vm.waitserial(b"Verification failed: (0x1A) Security Violation")
+  # Force shutdown VM
+  vm.forceshutdown()
+  vm.waitshutdown()
 
 TASKS = [
   (lambda: args.secboot == Secboot.SIGN,
@@ -172,8 +179,10 @@ TASKS = [
     bootvm,       "Boot with new bootloaders"),
   (lambda: True,
     shutdownvm,   "Shut down virtual machine"),
-  #(lambda: args.secboot != Secboot.NONE,
-  #  sbstripshim,  "Secure Boot: stripping shim signature"),
+  (lambda: args.secboot != Secboot.NONE,
+   sbstripshim,   "Secure Boot: stripping shim signature"),
+  (lambda: args.secboot != Secboot.NONE,
+   sbstripgrub,   "Secure Boot: stripping GRUB signature"),
 ]
 
 for predicate, do_task, msg in TASKS:

@@ -18,17 +18,21 @@
 
 from config import *
 from util import *
+from pexpect import fdpexpect
 from pyuefivars import UEFIVar
 from pyuefivars.edk2 import EDK2UEFIVarStore
 import atexit
 import os
+import re
 import shutil
 import signal
 import socket
 import subprocess
 import sys
 import tempfile
+import time
 
+# VM configuration based on architecture and firmware type
 vmconfig_uefi = {
   (Arch.AMD64, Firmware.UEFI): {
     "cmd": "qemu-system-x86_64",
@@ -59,6 +63,9 @@ vmconfig_uefi = {
     }
   }
 }
+
+# If the VM doesn't reach a desired state from boot in half an hour, then error out
+vm_waittimeout = 1800
 
 def ensure_vsock_accessible():
   lsmod_result = subprocess.run(["lsmod"], stdout=subprocess.PIPE)
@@ -104,6 +111,10 @@ class VirtualMachine:
     self._host_vsock = socket.socket(socket.AF_VSOCK, socket.SOCK_STREAM)
     self._host_vsock.bind((socket.VMADDR_CID_HOST, 4444))
     self._host_vsock.listen(10)
+    self._host_vsock.settimeout(vm_waittimeout)
+
+    self._monitor_socket = os.path.join(self._vmpath, "monitor")
+    self._serial_socket = os.path.join(self._vmpath, "serial")
 
     if DEBUG:
       print(f"Created VM directory {self._vmpath}")
@@ -138,13 +149,16 @@ class VirtualMachine:
       f.write(bytes(varstore))
 
   def start(self, ephemeral_snapshot=False):
+    serialcon = f"unix:{self._serial_socket},server,nowait"
+    if DEBUG:
+      serialcon += ",logfile=/dev/tty"
     base_opts = [self._config["cmd"],
       "-m", self._config["ram"],
       "-M", f"{self._config['machine']},accel={accel_for(self._arch)}",
       "-cpu", f"{self._config['cpu']}",
       "-nographic",
-      "-monitor", "none",
-      "-serial", "file:/dev/tty" if DEBUG else "none",
+      "-monitor", f"unix:{self._monitor_socket},server,nowait",
+      "-serial", serialcon,
       "-device", "vhost-vsock-pci,guest-cid=3",
       "-netdev", "user,id=net0,hostfwd=tcp::2222-:22",
       "-device", "virtio-net-pci,romfile=,netdev=net0"
@@ -176,12 +190,22 @@ class VirtualMachine:
         os.kill(self._vm_process.pid, signal.SIGINT)
       except:
         pass
+
     atexit.register(kill_vm_process)
 
   def waitboot(self):
     connfd, _ = self._host_vsock.accept()
     assert connfd.recv(3) == b"RDY"
     connfd.close()
+
+  def waitserial(self, data):
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as serfd:
+      serfd.connect(self._serial_socket)
+      serp = fdpexpect.fdspawn(serfd, timeout=vm_waittimeout)
+      serp.expect(re.escape(data))
+
+  def forceshutdown(self):
+    os.kill(self._vm_process.pid, signal.SIGINT)
 
   def waitshutdown(self):
     self._vm_process.wait()
@@ -212,3 +236,22 @@ class VirtualMachine:
       [ f"root@localhost:{src_file_path}" for src_file_path in src_file_paths ] +
       [ dest_dir_path ])
     assert result.returncode == 0
+
+  def remote_file(self, remote_path):
+    class RemoteFileContext:
+      """Context manager for modifying remote files
+      """
+      def __init__(self, vm, remote_path, tempdir_path):
+        self._vm = vm
+        self._remote_path = remote_path
+        self.local_path = os.path.join(
+          tempdir_path, os.path.split(remote_path)[-1])
+        self._vm.get_files([self._remote_path], self.local_path)
+
+      def __enter__(self):
+        return self
+
+      def __exit__(self, type, value, traceback):
+        self._vm.copy_files([self.local_path], self._remote_path)
+
+    return RemoteFileContext(self, remote_path, self._vmpath)

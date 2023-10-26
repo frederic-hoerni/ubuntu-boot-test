@@ -38,7 +38,7 @@ vmconfig_uefi = {
     "cmd": "qemu-system-x86_64",
     "machine": "q35",
     "cpu": "qemu64",
-    "ram": "2048",
+    "ram": "512",
     "fw_code": "/usr/share/OVMF/OVMF_CODE.fd",
     "fw_vars_template": {
       False: "/usr/share/OVMF/OVMF_VARS.fd",
@@ -49,13 +49,13 @@ vmconfig_uefi = {
     "cmd": "qemu-system-x86_64",
     "machine": "q35",
     "cpu": "qemu64",
-    "ram": "2048"
+    "ram": "512"
   },
   (Arch.ARM64, Firmware.UEFI): {
     "cmd": "qemu-system-aarch64",
     "machine": "virt",
     "cpu": "cortex-a72",
-    "ram": "2048",
+    "ram": "512",
     "fw_code": "/usr/share/AAVMF/AAVMF_CODE.fd",
     "fw_vars_template": {
       False: "/usr/share/AAVMF/AAVMF_VARS.fd",

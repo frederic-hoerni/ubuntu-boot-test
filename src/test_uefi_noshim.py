@@ -48,21 +48,6 @@ package_paths = prepare_packages(TEMPDIR.name, PACKAGE_SETS[args.arch], args.pac
 # Create virtual machine
 vm = VirtualMachine(args.release, args.arch, Firmware.UEFI, secboot=False)
 
-def bootvm():
-  # Wait for VM to start and cloud-init to apply
-  vm.start()
-  vm.waitboot()
-
-def rebootvm():
-  # Wait for successful reboot
-  vm.run_cmd(["reboot"], assert_ok=False)
-  vm.waitboot()
-
-def shutdownvm():
-  # Wait for successful shutdown
-  vm.run_cmd(["poweroff"], assert_ok=False)
-  vm.waitshutdown()
-
 def purgesigned():
   # Purge signed packages if in unsigned mode
   # We do this to make doubly sure the new GRUB is the only
@@ -84,11 +69,11 @@ def installnew():
   vm.run_cmd(["grub-install"])
 
 TASKS = [
-  (bootvm,       "Boot and provision image"),
-  (purgesigned,  "Purge signed bootloaders"),
-  (installnew,   "Install new bootloaders"),
-  (rebootvm,     "Reboot with new bootloaders"),
-  (shutdownvm,   "Shut down virtual machine"),
+  (lambda: vm.start(),    "Boot and provision image"),
+  (purgesigned,           "Purge signed bootloaders"),
+  (installnew,            "Install new bootloaders"),
+  (lambda: vm.reboot(),   "Reboot with new bootloaders"),
+  (lambda: vm.shutdown(), "Shut down virtual machine"),
 ]
 
 for do_task, msg in TASKS:

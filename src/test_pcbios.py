@@ -44,21 +44,6 @@ package_paths = prepare_packages(TEMPDIR.name, PACKAGE_SET, args.packages)
 # Create virtual machine
 vm = VirtualMachine(args.release, args.arch, Firmware.PCBIOS, Secboot.NONE)
 
-def bootvm():
-  # Wait for VM to start and cloud-init to apply
-  vm.start()
-  vm.waitboot()
-
-def rebootvm():
-  # Wait for successful reboot
-  vm.run_cmd(["reboot"], assert_ok=False)
-  vm.waitboot()
-
-def shutdownvm():
-  # Wait for successful shutdown
-  vm.run_cmd(["poweroff"], assert_ok=False)
-  vm.waitshutdown()
-
 def installnew():
   # Copy packages to VM
   vm.copy_files(package_paths, "/tmp/")
@@ -67,12 +52,11 @@ def installnew():
   # Install new GRUB
   vm.run_cmd(["DEBIAN_FRONTEND=noninteractive", "dpkg-reconfigure", "grub-pc"])
 
-
 TASKS = [
-  (bootvm,       "Boot and provision image"),
-  (installnew,   "Install new bootloaders"),
-  (rebootvm,     "Reboot with new bootloaders"),
-  (shutdownvm,   "Shut down virtual machine"),
+  (lambda: vm.start(),    "Boot and provision image"),
+  (installnew,            "Install new bootloaders"),
+  (lambda: vm.reboot(),   "Reboot with new bootloaders"),
+  (lambda: vm.shutdown(), "Shut down virtual machine"),
 ]
 
 for do_task, msg in TASKS:

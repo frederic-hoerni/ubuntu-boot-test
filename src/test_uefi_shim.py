@@ -83,21 +83,6 @@ def disablesb():
 def enablesb():
   vm.write_efivar(SECURE_BOOT_ENABLE_GUID, "SecureBootEnable", b"\x01", append=False)
 
-def bootvm():
-  # Wait for VM to start and cloud-init to apply
-  vm.start()
-  vm.waitboot()
-
-def rebootvm():
-  # Wait for successful reboot
-  vm.run_cmd(["reboot"], assert_ok=False)
-  vm.waitboot()
-
-def shutdownvm():
-  # Wait for successful shutdown
-  vm.run_cmd(["poweroff"], assert_ok=False)
-  vm.waitshutdown()
-
 def installnew():
   # Copy packages to VM
   vm.copy_files(package_paths, "/tmp/")
@@ -130,18 +115,14 @@ def sbsignnew():
     with vm.remote_file(remote_path) as rf:
       sbsign_file(with_key, rf.local_path)
 
-def ephemeralboot():
-  vm.start(ephemeral_snapshot=True)
-  vm.waitboot()
-
 def sbstripshim():
   # Boot as an ephemeral snapshot
-  ephemeralboot()
+  vm.start(ephemeral_snapshot=True)
   # Clean signatures
   with vm.remote_file(SHIM_PATH) as rf:
     cleansigs(rf.local_path)
   # Reboot and verify that we get "Access denied"
-  vm.run_cmd(["reboot"], assert_ok=False)
+  vm.reboot(wait=False)
   vm.waitserial(f"shim{EFI_SUFFIXES[args.arch]}: Access Denied".encode())
   # Force shutdown VM
   vm.forceshutdown()
@@ -149,20 +130,19 @@ def sbstripshim():
 
 def sbstripgrub():
   # Boot as an ephemeral snapshot
-  ephemeralboot()
+  vm.start(ephemeral_snapshot=True)
   # Clean signatures
   with vm.remote_file(GRUB_PATH) as rf:
     cleansigs(rf.local_path)
   # Reboot and wait for error from MokManager
-  vm.run_cmd(["reboot"], assert_ok=False)
+  vm.reboot(wait=False)
   vm.waitserial(b"Verification failed: (0x1A) Security Violation")
   # Force shutdown VM
   vm.forceshutdown()
-  vm.waitshutdown()
 
 def sbstripkernel():
   # Boot as an ephemeral snapshot
-  ephemeralboot()
+  vm.start(ephemeral_snapshot=True)
   # Find all kernels
   kernel_paths = vm.run_cmd(["find", "/boot", "-name", "vmlinuz-*"]).splitlines()
   if DEBUG:
@@ -172,37 +152,36 @@ def sbstripkernel():
     with vm.remote_file(kernel_path) as rf:
       cleansigs(rf.local_path)
   # Reboot and wait for error from GRUB
-  vm.run_cmd(["reboot"], assert_ok=False)
+  vm.reboot(wait=False)
   vm.waitserial(b"error: bad shim signature.")
   # Force shutdown VM
   vm.forceshutdown()
-  vm.waitshutdown()
 
 TASKS = [
   (lambda: args.secboot == Secboot.SIGN,
-    setupsbkeys,  "Generate and enrol Secure Boot keys"),
+    setupsbkeys,            "Generate and enrol Secure Boot keys"),
   (lambda: args.secboot == Secboot.SIGN,
-    disablesb,    "Disable Secure Boot"),
+    disablesb,              "Disable Secure Boot"),
   (lambda: True,
-    bootvm,       "Boot and provision image"),
+    lambda: vm.start(),     "Boot and provision image"),
   (lambda: True,
-    installnew,   "Install new bootloaders"),
+    installnew,             "Install new bootloaders"),
   (lambda: args.secboot == Secboot.SIGN,
-    sbsignnew,    "Sign new bootloaders"),
+    sbsignnew,              "Sign new bootloaders"),
   (lambda: True,
-    shutdownvm,   "Shut down virtual machine"),
+    lambda: vm.shutdown(),  "Shut down virtual machine"),
   (lambda: args.secboot == Secboot.SIGN,
-    enablesb,     "Enable Secure Boot"),
+    enablesb,               "Enable Secure Boot"),
   (lambda: True,
-    bootvm,       "Boot with new bootloaders"),
+    lambda: vm.start(),     "Boot with new bootloaders"),
   (lambda: True,
-    shutdownvm,   "Shut down virtual machine"),
+    lambda: vm.shutdown(),  "Shut down virtual machine"),
   (lambda: args.secboot != Secboot.NONE,
-   sbstripshim,   "Secure Boot: stripping shim signature"),
+   sbstripshim,             "Secure Boot: stripping shim signature"),
   (lambda: args.secboot != Secboot.NONE,
-   sbstripgrub,   "Secure Boot: stripping GRUB signature"),
+   sbstripgrub,             "Secure Boot: stripping GRUB signature"),
   (lambda: args.secboot != Secboot.NONE,
-   sbstripkernel, "Secure Boot: stripping kernel signature"),
+   sbstripkernel,           "Secure Boot: stripping kernel signature"),
 ]
 
 for predicate, do_task, msg in TASKS:

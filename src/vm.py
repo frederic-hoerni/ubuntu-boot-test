@@ -148,7 +148,7 @@ class VirtualMachine:
     with open(self._uefi_vars_path, "wb") as f:
       f.write(bytes(varstore))
 
-  def start(self, ephemeral_snapshot=False):
+  def start(self, ephemeral_snapshot=False, wait=True):
     serialcon = f"unix:{self._serial_socket},server,nowait"
     if DEBUG:
       serialcon += ",logfile=/dev/tty"
@@ -193,6 +193,25 @@ class VirtualMachine:
 
     atexit.register(kill_vm_process)
 
+    # Wait for boot if requested
+    if wait:
+      self.waitboot()
+
+  def reboot(self, wait=True):
+    self.run_cmd(["reboot"], assert_ok=False)
+    if wait:
+      self.waitboot()
+
+  def shutdown(self, wait=True):
+    self.run_cmd(["poweroff"], assert_ok=False)
+    if wait:
+      self.waitshutdown()
+
+  def forceshutdown(self, wait=True):
+    os.kill(self._vm_process.pid, signal.SIGINT)
+    if wait:
+      self.waitshutdown()
+
   def waitboot(self):
     connfd, _ = self._host_vsock.accept()
     assert connfd.recv(3) == b"RDY"
@@ -203,9 +222,6 @@ class VirtualMachine:
       serfd.connect(self._serial_socket)
       serp = fdpexpect.fdspawn(serfd, timeout=vm_waittimeout)
       serp.expect(re.escape(data))
-
-  def forceshutdown(self):
-    os.kill(self._vm_process.pid, signal.SIGINT)
 
   def waitshutdown(self):
     self._vm_process.wait()

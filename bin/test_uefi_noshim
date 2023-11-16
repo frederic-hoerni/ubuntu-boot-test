@@ -1,5 +1,6 @@
+#!/usr/bin/env python3
 #
-# ubuntu-boot-test: test_uefi_noshim.py: UEFI no shim boot test
+# test_uefi_noshim.py: UEFI no shim boot test
 #
 # Copyright (C) 2023 Canonical, Ltd.
 # Author: Mate Kukri <mate.kukri@canonical.com>
@@ -16,9 +17,9 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from config import *
-from util import *
-from vm import VirtualMachine
+from ubuntu_boot_test.config import *
+from ubuntu_boot_test.util import *
+from ubuntu_boot_test.vm import VirtualMachine
 import argparse
 import tempfile
 
@@ -69,11 +70,11 @@ def installnew():
   vm.run_cmd(["grub-install"])
 
 TASKS = [
-  (lambda: vm.start(),    "Boot and provision image"),
-  (purgesigned,           "Purge signed bootloaders"),
-  (installnew,            "Install new bootloaders"),
-  (lambda: vm.reboot(),   "Reboot with new bootloaders"),
-  (lambda: vm.shutdown(), "Shut down virtual machine"),
+  (vm.start,    "Boot and provision image"),
+  (purgesigned, "Purge signed bootloaders"),
+  (installnew,  "Install new bootloaders"),
+  (vm.reboot,   "Reboot with new bootloaders"),
+  (vm.shutdown, "Shut down virtual machine"),
 ]
 
 for do_task, msg in TASKS:

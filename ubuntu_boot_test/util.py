@@ -16,9 +16,9 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from config import *
 from enum import Enum
 from OpenSSL import crypto
+from ubuntu_boot_test.config import *
 import os
 import requests
 import struct

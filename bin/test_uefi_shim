@@ -1,5 +1,6 @@
+#!/usr/bin/env python3
 #
-# ubuntu-boot-test: test_uefi_shim.py: UEFI shim boot test
+# test_uefi_shim.py: UEFI shim boot test
 #
 # Copyright (C) 2023 Canonical, Ltd.
 # Author: Mate Kukri <mate.kukri@canonical.com>
@@ -16,9 +17,9 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from config import *
-from util import *
-from vm import VirtualMachine
+from ubuntu_boot_test.config import *
+from ubuntu_boot_test.util import *
+from ubuntu_boot_test.vm import VirtualMachine
 import argparse
 import subprocess
 import tempfile
@@ -59,6 +60,7 @@ package_paths = prepare_packages(TEMPDIR.name, PACKAGE_SETS[args.arch], args.pac
 
 # Create virtual machine
 vm = VirtualMachine(args.release, args.arch, Firmware.UEFI, args.secboot != Secboot.NONE)
+
 
 def setupsbkeys():
   # db
@@ -159,29 +161,29 @@ def sbstripkernel():
 
 TASKS = [
   (lambda: args.secboot == Secboot.SIGN,
-    setupsbkeys,            "Generate and enrol Secure Boot keys"),
+    setupsbkeys,  "Generate and enrol Secure Boot keys"),
   (lambda: args.secboot == Secboot.SIGN,
-    disablesb,              "Disable Secure Boot"),
+    disablesb,    "Disable Secure Boot"),
   (lambda: True,
-    lambda: vm.start(),     "Boot and provision image"),
+    vm.start,     "Boot and provision image"),
   (lambda: True,
-    installnew,             "Install new bootloaders"),
+    installnew,   "Install new bootloaders"),
   (lambda: args.secboot == Secboot.SIGN,
-    sbsignnew,              "Sign new bootloaders"),
+    sbsignnew,    "Sign new bootloaders"),
   (lambda: True,
-    lambda: vm.shutdown(),  "Shut down virtual machine"),
+    vm.shutdown,  "Shut down virtual machine"),
   (lambda: args.secboot == Secboot.SIGN,
-    enablesb,               "Enable Secure Boot"),
+    enablesb,     "Enable Secure Boot"),
   (lambda: True,
-    lambda: vm.start(),     "Boot with new bootloaders"),
+    vm.start,     "Boot with new bootloaders"),
   (lambda: True,
-    lambda: vm.shutdown(),  "Shut down virtual machine"),
+    vm.shutdown,  "Shut down virtual machine"),
   (lambda: args.secboot != Secboot.NONE,
-   sbstripshim,             "Secure Boot: stripping shim signature"),
+   sbstripshim,   "Secure Boot: stripping shim signature"),
   (lambda: args.secboot != Secboot.NONE,
-   sbstripgrub,             "Secure Boot: stripping GRUB signature"),
+   sbstripgrub,   "Secure Boot: stripping GRUB signature"),
   (lambda: args.secboot != Secboot.NONE,
-   sbstripkernel,           "Secure Boot: stripping kernel signature"),
+   sbstripkernel, "Secure Boot: stripping kernel signature"),
 ]
 
 for predicate, do_task, msg in TASKS:

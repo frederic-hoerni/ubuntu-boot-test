@@ -16,11 +16,11 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from config import *
-from util import *
 from pexpect import fdpexpect
 from pyuefivars import UEFIVar
 from pyuefivars.edk2 import EDK2UEFIVarStore
+from ubuntu_boot_test.config import *
+from ubuntu_boot_test.util import *
 import atexit
 import os
 import re
@@ -28,9 +28,7 @@ import shutil
 import signal
 import socket
 import subprocess
-import sys
 import tempfile
-import time
 
 # VM configuration based on architecture and firmware type
 vmconfig_uefi = {
@@ -79,7 +77,7 @@ def ensure_vsock_accessible():
     assert False, "/dev/vhost-vsock is not accessible"
 
 def create_cloud_init_seed(dest_path):
-  cidata_path = os.path.join(os.path.dirname(sys.argv[0]), "cidata")
+  cidata_path = os.path.join(os.path.dirname(__file__), "cidata")
   result = subprocess.run(["genisoimage", "-joliet", "-rock", "-quiet",
     "-output", dest_path, "-volid", "cidata", cidata_path])
   assert result.returncode == 0

@@ -1,1 +1,4 @@
+# Python artefacts
+*.egg-info
 __pycache__
+dist

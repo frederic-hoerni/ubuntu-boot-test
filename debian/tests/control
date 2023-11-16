@@ -1,7 +1,5 @@
-Test-Command: python3 src/test_uefi_shim.py -r $(lsb_release --codename --short) -a amd64 -s ms
+Test-Command: test_uefi_shim -r $(lsb_release --codename --short) -a amd64 -s ms
 Depends: @,
-  qemu-system-x86,
-  ovmf,
   shim-signed,
   grub-efi-amd64-signed,
   grub-efi-amd64-bin
@@ -9,10 +7,8 @@ Restrictions: allow-stderr, needs-root
 Architecture: amd64
 Features: test-name=uefi-shim-amd64
 
-Test-Command: python3 src/test_uefi_shim.py -r $(lsb_release --codename --short) -a arm64 -s ms
+Test-Command: test_uefi_shim -r $(lsb_release --codename --short) -a arm64 -s ms
 Depends: @,
-  qemu-system-arm,
-  qemu-efi-aarch64,
   shim-signed,
   grub-efi-arm64-signed,
   grub-efi-arm64-bin
@@ -20,9 +16,8 @@ Restrictions: allow-stderr, needs-root
 Architecture: arm64
 Features: test-name=uefi-shim-arm64
 
-Test-Command: python3 src/test_pcbios.py -r $(lsb_release --codename --short) -a amd64
+Test-Command: test_pcbios -r $(lsb_release --codename --short) -a amd64
 Depends: @,
-  qemu-system-x86,
   grub-pc
 Restrictions: allow-stderr, needs-root
 Architecture: amd64

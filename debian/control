@@ -1,5 +1,7 @@
 Source: ubuntu-boot-test
-Maintainer: Mate Kukri <mate.kukri@canonical.com>
+Maintainer: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
+Vcs-Browser: https://code.launchpad.net/~ubuntu-uefi-team/+git/ubuntu-boot-test
+Vcs-Git: https://git.launchpad.net/~ubuntu-uefi-team/+git/ubuntu-boot-test
 Section: misc
 Priority: optional
 Standards-Version: 4.6.2

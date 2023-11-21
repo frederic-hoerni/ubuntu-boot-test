@@ -1,5 +1,5 @@
-ubuntu-boot-test (1.5) jammy; urgency=medium
+ubuntu-boot-test (1~ppa1) noble; urgency=medium
 
-  * Initial release.
+  * Initial upload. (LP: #2044086)
 
  -- Mate Kukri <mate.kukri@canonical.com>  Tue, 10 Oct 2023 08:32:59 +0100

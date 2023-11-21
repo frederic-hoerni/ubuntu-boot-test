@@ -1,4 +1,4 @@
-Test-Command: python3 src/test_uefi_shim.py -r $(lsb_release --codename --short) -a amd64 -s sign
+Test-Command: python3 src/test_uefi_shim.py -r $(lsb_release --codename --short) -a amd64 -s ms
 Depends: @,
   qemu-system-x86,
   ovmf,
@@ -9,7 +9,7 @@ Restrictions: allow-stderr, needs-root
 Architecture: amd64
 Features: test-name=uefi-shim-amd64
 
-Test-Command: python3 src/test_uefi_shim.py -r $(lsb_release --codename --short) -a arm64 -s sign
+Test-Command: python3 src/test_uefi_shim.py -r $(lsb_release --codename --short) -a arm64 -s ms
 Depends: @,
   qemu-system-arm,
   qemu-efi-aarch64,

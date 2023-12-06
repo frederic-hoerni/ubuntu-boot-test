@@ -26,8 +26,18 @@ import tempfile
 TEMPDIR = tempfile.TemporaryDirectory("")
 
 PACKAGE_SETS = {
-  Arch.AMD64: set(("grub-efi-amd64-bin", )),
-  Arch.ARM64: set(("grub-efi-arm64-bin", )),
+  Arch.AMD64: set((
+    "grub2-common",
+    "grub-common",
+    "grub-efi-amd64",
+    "grub-efi-amd64-bin"
+  )),
+  Arch.ARM64: set((
+    "grub2-common",
+    "grub-common",
+    "grub-efi-arm64",
+    "grub-efi-arm64-bin"
+  )),
 }
 
 # Parse arguments

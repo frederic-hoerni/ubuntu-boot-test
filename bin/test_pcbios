@@ -23,7 +23,12 @@ from ubuntu_boot_test.vm import VirtualMachine
 import argparse
 import tempfile
 
-PACKAGE_SET = set(("grub-pc", ))
+PACKAGE_SET = set((
+  "grub2-common",
+  "grub-common",
+  "grub-pc",
+  "grub-pc-bin"
+))
 
 TEMPDIR = tempfile.TemporaryDirectory("")
 

@@ -230,6 +230,9 @@ class VirtualMachine:
       "-o", "UserKnownHostsFile=/dev/null",
       "-p", "2222",
       "root@localhost" ] + args, capture_output=True)
+    if DEBUG:
+      print(result.stdout.decode())
+      print(result.stderr.decode(), file=sys.stderr)
     if assert_ok:
       assert result.returncode == 0
     return result.stdout.decode()
@@ -240,7 +243,10 @@ class VirtualMachine:
       "-o", "UserKnownHostsFile=/dev/null",
       "-P", "2222"] +
       src_file_paths +
-      [f"root@localhost:{dest_dir_path}"])
+      [f"root@localhost:{dest_dir_path}"], capture_output=True)
+    if DEBUG:
+      print(result.stdout.decode())
+      print(result.stderr.decode(), file=sys.stderr)
     assert result.returncode == 0
 
   def get_files(self, src_file_paths, dest_dir_path):
@@ -249,7 +255,10 @@ class VirtualMachine:
       "-o", "UserKnownHostsFile=/dev/null",
       "-P", "2222"] +
       [ f"root@localhost:{src_file_path}" for src_file_path in src_file_paths ] +
-      [ dest_dir_path ])
+      [ dest_dir_path ], capture_output=True)
+    if DEBUG:
+      print(result.stdout.decode())
+      print(result.stderr.decode(), file=sys.stderr)
     assert result.returncode == 0
 
   def remote_file(self, remote_path):

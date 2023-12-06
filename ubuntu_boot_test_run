@@ -1,0 +1,41 @@
+#!/usr/bin/env python3
+#
+# ubuntu_boot_test_run: Bootloader test framework
+#
+# Copyright (C) 2023 Canonical, Ltd.
+# Author: Mate Kukri <mate.kukri@canonical.com>
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; version 3.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+from ubuntu_boot_test import cmd_pcbios, cmd_uefi_noshim, cmd_uefi_shim
+import argparse
+import sys
+
+parser = argparse.ArgumentParser(prog=sys.argv[0],
+  description="Bootloader test framework")
+
+subparsers = parser.add_subparsers(
+  dest="command",
+  help="Command to run",
+  required=True)
+
+# Register tests
+cmd_pcbios.register(subparsers)
+cmd_uefi_noshim.register(subparsers)
+cmd_uefi_shim.register(subparsers)
+
+# Prase arguments
+args = parser.parse_args()
+
+# Execute chosen test
+globals()[f"cmd_{args.command}"].execute(args)

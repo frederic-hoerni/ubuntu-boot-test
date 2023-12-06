@@ -14,8 +14,6 @@ setup(
         include=["ubuntu_boot_test"],
     ),
     scripts=(
-        "bin/test_pcbios",
-        "bin/test_uefi_noshim",
-        "bin/test_uefi_shim"
+        "ubuntu_boot_test_run",
     ),
 )

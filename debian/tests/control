@@ -1,4 +1,4 @@
-Test-Command: test_uefi_shim -r $(lsb_release --codename --short) -a amd64 -s ms
+Test-Command: ubuntu_boot_test_run uefi_shim -r $(lsb_release --codename --short) -a amd64 -s ms
 Depends: @,
   shim-signed,
   grub-efi-amd64-signed,
@@ -7,7 +7,7 @@ Restrictions: allow-stderr, needs-root
 Architecture: amd64
 Features: test-name=uefi-shim-amd64
 
-Test-Command: test_uefi_shim -r $(lsb_release --codename --short) -a arm64 -s ms
+Test-Command: ubuntu_boot_test_run uefi_shim -r $(lsb_release --codename --short) -a arm64 -s ms
 Depends: @,
   shim-signed,
   grub-efi-arm64-signed,
@@ -16,7 +16,7 @@ Restrictions: allow-stderr, needs-root
 Architecture: arm64
 Features: test-name=uefi-shim-arm64
 
-Test-Command: test_pcbios -r $(lsb_release --codename --short) -a amd64
+Test-Command: ubuntu_boot_test_run pcbios -r $(lsb_release --codename --short) -a amd64
 Depends: @,
   grub-pc
 Restrictions: allow-stderr, needs-root

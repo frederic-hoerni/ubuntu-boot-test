@@ -1,0 +1,198 @@
+# ubuntu-boot-test: cmd_uefi_shim.py: UEFI shim boot test
+#
+# Copyright (C) 2023 Canonical, Ltd.
+# Author: Mate Kukri <mate.kukri@canonical.com>
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; version 3.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+from ubuntu_boot_test.config import *
+from ubuntu_boot_test.util import *
+from ubuntu_boot_test.vm import VirtualMachine
+import subprocess
+import tempfile
+
+def register(subparsers):
+  parser = subparsers.add_parser("uefi_shim",
+    description="UEFI shim boot test")
+
+  parser.add_argument("-r", "--release", required=True,
+    help="Guest Ubuntu release")
+  parser.add_argument("-a", "--arch", required=True, type=Arch,
+    help="Guest architecture")
+  parser.add_argument("-s", "--secboot", required=True, type=Secboot,
+    help="Secure Boot configuration")
+  parser.add_argument("packages", nargs="*",
+    help="List of packages to install (instead of apt-get download)")
+
+def execute(args):
+  TEMPDIR = tempfile.TemporaryDirectory("")
+
+  PACKAGE_SETS = {
+    Arch.AMD64: set((
+      "grub2-common",
+      "grub-common",
+      "grub-efi-amd64",
+      "grub-efi-amd64-bin",
+      "grub-efi-amd64-signed",
+      "shim-signed"
+    )),
+    Arch.ARM64: set((
+      "grub2-common",
+      "grub-common",
+      "grub-efi-arm64",
+      "grub-efi-arm64-bin",
+      "grub-efi-arm64-signed",
+      "shim-signed"
+    )),
+  }
+
+  EFI_SUFFIXES = {
+    Arch.AMD64: "x64.efi",
+    Arch.ARM64: "a64.efi"
+  }
+
+  # Package paths to install
+  package_paths = prepare_packages(TEMPDIR.name, PACKAGE_SETS[args.arch], args.packages)
+
+  # Create virtual machine
+  vm = VirtualMachine(args.release, args.arch, Firmware.UEFI, args.secboot != Secboot.NONE)
+
+
+  def setupsbkeys():
+    # db
+    pem_priv, pem_cert, esl_cert = gen_efi_signkey()
+    with open(os.path.join(TEMPDIR.name, "db.key"), "wb") as f:
+      f.write(pem_priv)
+    with open(os.path.join(TEMPDIR.name, "db.pem"), "wb") as f:
+      f.write(pem_cert)
+    vm.write_efivar(EFI_IMAGE_SECURITY_DATABASE_GUID, "db", esl_cert, append=False)
+
+    # MokList
+    pem_priv, pem_cert, esl_cert = gen_efi_signkey()
+    with open(os.path.join(TEMPDIR.name, "MokList.key"), "wb") as f:
+      f.write(pem_priv)
+    with open(os.path.join(TEMPDIR.name, "MokList.pem"), "wb") as f:
+      f.write(pem_cert)
+    vm.write_efivar(SHIM_LOCK_GUID, "MokList", esl_cert, append=False)
+
+  def disablesb():
+    vm.write_efivar(SECURE_BOOT_ENABLE_GUID, "SecureBootEnable", b"\x00", append=False)
+
+  def enablesb():
+    vm.write_efivar(SECURE_BOOT_ENABLE_GUID, "SecureBootEnable", b"\x01", append=False)
+
+  def installnew():
+    # Copy packages to VM
+    vm.copy_files(package_paths, "/tmp/")
+    # Install packages
+    vm.run_cmd(["apt", "install", "--yes", "/tmp/*.deb"])
+    # Install new GRUB
+    vm.run_cmd(["grub-install"])
+
+  def cleansigs(path):
+    # Remove exisiting signatures from the binary
+    while subprocess.run(["sbattach", "--remove", path]).returncode == 0:
+      pass
+
+  def sbsign_file(with_key, path):
+    cleansigs(path)
+    result = subprocess.run(["sbsign",
+      "--key", os.path.join(TEMPDIR.name, f"{with_key}.key"),
+      "--cert", os.path.join(TEMPDIR.name, f"{with_key}.pem"),
+      "--output", path,
+      path])
+    assert result.returncode == 0, f"Failed to sign {path}"
+
+  SHIM_PATH = f"/boot/efi/EFI/ubuntu/shim{EFI_SUFFIXES[args.arch]}"
+  GRUB_PATH = f"/boot/efi/EFI/ubuntu/grub{EFI_SUFFIXES[args.arch]}"
+
+  def sbsignnew():
+    SIGN_PATHS = [ ("db", SHIM_PATH), ("MokList", GRUB_PATH) ]
+
+    for with_key, remote_path in SIGN_PATHS:
+      with vm.remote_file(remote_path) as rf:
+        sbsign_file(with_key, rf.local_path)
+
+  def sbstripshim():
+    # Boot as an ephemeral snapshot
+    vm.start(ephemeral_snapshot=True)
+    # Clean signatures
+    with vm.remote_file(SHIM_PATH) as rf:
+      cleansigs(rf.local_path)
+    # Reboot and verify that we get "Access denied"
+    vm.reboot(wait=False)
+    vm.waitserial(f"shim{EFI_SUFFIXES[args.arch]}: Access Denied".encode())
+    # Force shutdown VM
+    vm.forceshutdown()
+    vm.waitshutdown()
+
+  def sbstripgrub():
+    # Boot as an ephemeral snapshot
+    vm.start(ephemeral_snapshot=True)
+    # Clean signatures
+    with vm.remote_file(GRUB_PATH) as rf:
+      cleansigs(rf.local_path)
+    # Reboot and wait for error from MokManager
+    vm.reboot(wait=False)
+    vm.waitserial(b"Verification failed: (0x1A) Security Violation")
+    # Force shutdown VM
+    vm.forceshutdown()
+
+  def sbstripkernel():
+    # Boot as an ephemeral snapshot
+    vm.start(ephemeral_snapshot=True)
+    # Find all kernels
+    kernel_paths = vm.run_cmd(["find", "/boot", "-name", "vmlinuz-*"]).splitlines()
+    if DEBUG:
+      print(f"Found kernels: {kernel_paths}")
+    # Clean signatures
+    for kernel_path in kernel_paths:
+      with vm.remote_file(kernel_path) as rf:
+        cleansigs(rf.local_path)
+    # Reboot and wait for error from GRUB
+    vm.reboot(wait=False)
+    vm.waitserial(b"error: bad shim signature.")
+    # Force shutdown VM
+    vm.forceshutdown()
+
+  TASKS = [
+    (lambda: args.secboot == Secboot.SIGN,
+      setupsbkeys,  "Generate and enrol Secure Boot keys"),
+    (lambda: args.secboot == Secboot.SIGN,
+      disablesb,    "Disable Secure Boot"),
+    (lambda: True,
+      vm.start,     "Boot and provision image"),
+    (lambda: True,
+      installnew,   "Install new bootloaders"),
+    (lambda: args.secboot == Secboot.SIGN,
+      sbsignnew,    "Sign new bootloaders"),
+    (lambda: True,
+      vm.shutdown,  "Shut down virtual machine"),
+    (lambda: args.secboot == Secboot.SIGN,
+      enablesb,     "Enable Secure Boot"),
+    (lambda: True,
+      vm.start,     "Boot with new bootloaders"),
+    (lambda: True,
+      vm.shutdown,  "Shut down virtual machine"),
+    (lambda: args.secboot != Secboot.NONE,
+     sbstripshim,   "Secure Boot: stripping shim signature"),
+    (lambda: args.secboot != Secboot.NONE,
+     sbstripgrub,   "Secure Boot: stripping GRUB signature"),
+    (lambda: args.secboot != Secboot.NONE,
+     sbstripkernel, "Secure Boot: stripping kernel signature"),
+  ]
+
+  for predicate, do_task, msg in TASKS:
+    if predicate():
+      do_task()
+      print(f"{msg} OK")

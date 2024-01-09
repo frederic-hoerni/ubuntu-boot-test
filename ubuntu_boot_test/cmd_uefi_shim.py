@@ -97,7 +97,8 @@ def execute(args):
     # Install packages
     vm.run_cmd(["apt", "install", "--yes", "/tmp/*.deb"])
     # Install new GRUB
-    vm.run_cmd(["grub-install"])
+    vm.run_cmd(["grub-install", "/dev/disk/by-id/virtio-0"])
+    vm.run_cmd(["update-grub"])
 
   def cleansigs(path):
     # Remove exisiting signatures from the binary

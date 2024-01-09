@@ -50,6 +50,17 @@ def execute(args):
     )),
   }
 
+  PURGE_SETS = {
+    Arch.AMD64: set((
+      "grub-efi-amd64-signed",
+      "shim-signed"
+    )),
+    Arch.ARM64: set((
+      "grub-efi-arm64-signed",
+      "shim-signed"
+    )),
+  }
+
   # Package paths to install
   package_paths = prepare_packages(TEMPDIR.name, PACKAGE_SETS[args.arch], args.packages)
 
@@ -58,14 +69,8 @@ def execute(args):
 
   def purgesigned():
     # Purge signed packages if in unsigned mode
-    # We do this to make doubly sure the new GRUB is the only
-    # thing in the boot path.
-    # Note that this shouldn't be confused with running snakeoil signed
-    # shim and GRUB for testing.
-    vm.run_cmd(["apt", "purge", "--allow-remove-essential", "--yes",
-                  "grub-*-signed", "shim-signed"])
-    # Also remove the EFI directoiry from the ESP to make sure no previous
-    # shim remains
+    vm.run_cmd(["apt", "purge", "--allow-remove-essential", "--yes"] + list(PURGE_SETS[args.arch]))
+    # Remove EFI directory to make sure no shim remains
     vm.run_cmd(["rm", "-r", "/boot/efi/EFI"])
 
   def installnew():
@@ -74,7 +79,8 @@ def execute(args):
     # Install packages
     vm.run_cmd(["apt", "install", "--yes", "/tmp/*.deb"])
     # Install new GRUB
-    vm.run_cmd(["grub-install"])
+    vm.run_cmd(["grub-install", "/dev/disk/by-id/virtio-0"])
+    vm.run_cmd(["update-grub"])
 
   TASKS = [
     (vm.start,    "Boot and provision image"),

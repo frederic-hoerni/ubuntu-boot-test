@@ -150,7 +150,8 @@ class VirtualMachine:
     serialcon = f"unix:{self._serial_socket},server,nowait"
     if DEBUG:
       serialcon += ",logfile=/dev/tty"
-    base_opts = [self._config["cmd"],
+
+    opts = [self._config["cmd"],
       "-m", self._config["ram"],
       "-M", f"{self._config['machine']},accel={accel_for(self._arch)}",
       "-cpu", f"{self._config['cpu']}",
@@ -163,24 +164,22 @@ class VirtualMachine:
     ]
 
     if self._firmware == Firmware.UEFI:
-      fw_opts = [
+      opts += [
         "-drive", f"file={self._config['fw_code']},if=pflash,format=raw,unit=0,readonly=on",
         "-drive", f"file={self._uefi_vars_path},if=pflash,format=raw,unit=1"
       ]
-    else:
-      fw_opts = []
 
-    disk_opts = [
+    opts += [
       "-drive", f"file={self._disk_image_path},if=none,id=hdd",
-      "-device", f"virtio-blk-pci,drive=hdd,bootindex=0",
+      "-device", f"virtio-blk-pci,drive=hdd,serial=0,bootindex=0",
       "-drive", f"file={self._cloud_init_seed_path},if=virtio,format=raw,readonly=on",
     ]
 
     if ephemeral_snapshot:
-      disk_opts.append("-snapshot")
+      opts.append("-snapshot")
 
     # Create VM process
-    self._vm_process = subprocess.Popen(base_opts + fw_opts + disk_opts)
+    self._vm_process = subprocess.Popen(opts)
 
     # Make sure VM exits if we error out
     def kill_vm_process():

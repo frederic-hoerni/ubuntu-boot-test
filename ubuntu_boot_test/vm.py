@@ -37,10 +37,10 @@ vmconfig_uefi = {
     "machine": "q35",
     "cpu": "qemu64",
     "ram": "512",
-    "fw_code": "/usr/share/OVMF/OVMF_CODE.fd",
+    "fw_code": "/usr/share/OVMF/OVMF_CODE_4M.secboot.fd",
     "fw_vars_template": {
-      False: "/usr/share/OVMF/OVMF_VARS.fd",
-      True: "/usr/share/OVMF/OVMF_VARS.ms.fd"
+      False: "/usr/share/OVMF/OVMF_VARS_4M.fd",
+      True: "/usr/share/OVMF/OVMF_VARS_4M.ms.fd"
     }
   },
   (Arch.AMD64, Firmware.PCBIOS): {

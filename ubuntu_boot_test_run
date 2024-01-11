@@ -34,7 +34,7 @@ cmd_pcbios.register(subparsers)
 cmd_uefi_noshim.register(subparsers)
 cmd_uefi_shim.register(subparsers)
 
-# Prase arguments
+# Parse arguments
 args = parser.parse_args()
 
 # Execute chosen test

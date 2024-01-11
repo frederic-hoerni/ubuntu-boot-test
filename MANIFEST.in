@@ -1,1 +1,3 @@
 include ubuntu_boot_test/cidata/*
+include ubuntu_boot_test/uefica/*
+include ubuntu_boot_test/canonical-uefi-ca.der

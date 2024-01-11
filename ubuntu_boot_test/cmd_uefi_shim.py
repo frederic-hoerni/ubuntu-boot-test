@@ -18,6 +18,7 @@
 from ubuntu_boot_test.config import *
 from ubuntu_boot_test.util import *
 from ubuntu_boot_test.vm import VirtualMachine
+import os
 import subprocess
 import tempfile
 
@@ -29,8 +30,6 @@ def register(subparsers):
     help="Guest Ubuntu release")
   parser.add_argument("-a", "--arch", required=True, type=Arch,
     help="Guest architecture")
-  parser.add_argument("-s", "--secboot", required=True, type=Secboot,
-    help="Secure Boot configuration")
   parser.add_argument("packages", nargs="*",
     help="List of packages to install (instead of apt-get download)")
 
@@ -61,15 +60,57 @@ def execute(args):
     Arch.ARM64: "a64.efi"
   }
 
+  SHIM_SIGNED_PATH = {
+    Arch.AMD64: "usr/lib/shim/shimx64.efi.signed.latest",
+    Arch.ARM64: "usr/lib/shim/shima64.efi.signed.latest",
+  }
+
+  GRUB_SIGNED_PATH = {
+    Arch.AMD64: "usr/lib/grub/x86_64-efi-signed/grubx64.efi.signed",
+    Arch.ARM64: "usr/lib/grub/arm64-efi-signed/gruba64.efi.signed",
+  }
+
   # Package paths to install
   package_paths = prepare_packages(TEMPDIR.name, PACKAGE_SETS[args.arch], args.packages)
 
+  # Determine if the shim is UEFI CA signed
+  shim_deb_path = None
+  for package_path in package_paths:
+    if "shim-signed" in package_path:
+      shim_deb_path = package_path
+      break
+  assert shim_deb_path is not None
+  result = subprocess.run(["dpkg-deb", "-x",
+      shim_deb_path,
+      os.path.join(TEMPDIR.name, "shim-signed")],
+      capture_output=not DEBUG)
+  assert result.returncode == 0
+  shim_is_uefica_signed = is_uefica_signed(os.path.join(
+    TEMPDIR.name,
+    "shim-signed",
+    SHIM_SIGNED_PATH[args.arch]))
+
+  # Determine if GRUB is signed by the Canonical UEFI CA
+  grub_signed_deb_path = None
+  for package_path in package_paths:
+    if "grub-efi-" in package_path and "-signed" in package_path:
+      grub_signed_deb_path = package_path
+      break
+  assert grub_signed_deb_path is not None
+  result = subprocess.run(["dpkg-deb", "-x",
+      grub_signed_deb_path,
+      os.path.join(TEMPDIR.name, "grub-efi-signed")],
+      capture_output=not DEBUG)
+  assert result.returncode == 0
+  grub_is_canonical_signed = is_canonical_signed(os.path.join(
+    TEMPDIR.name,
+    "grub-efi-signed",
+    GRUB_SIGNED_PATH[args.arch]))
+
   # Create virtual machine
-  vm = VirtualMachine(args.release, args.arch, Firmware.UEFI, args.secboot != Secboot.NONE)
+  vm = VirtualMachine(args.release, args.arch, Firmware.UEFI, secboot=True)
 
-
-  def setupsbkeys():
-    # db
+  def setup_db_key():
     pem_priv, pem_cert, esl_cert = gen_efi_signkey()
     with open(os.path.join(TEMPDIR.name, "db.key"), "wb") as f:
       f.write(pem_priv)
@@ -77,19 +118,13 @@ def execute(args):
       f.write(pem_cert)
     vm.write_efivar(EFI_IMAGE_SECURITY_DATABASE_GUID, "db", esl_cert, append=False)
 
-    # MokList
+  def setup_mok_key():
     pem_priv, pem_cert, esl_cert = gen_efi_signkey()
     with open(os.path.join(TEMPDIR.name, "MokList.key"), "wb") as f:
       f.write(pem_priv)
     with open(os.path.join(TEMPDIR.name, "MokList.pem"), "wb") as f:
       f.write(pem_cert)
     vm.write_efivar(SHIM_LOCK_GUID, "MokList", esl_cert, append=False)
-
-  def disablesb():
-    vm.write_efivar(SECURE_BOOT_ENABLE_GUID, "SecureBootEnable", b"\x00", append=False)
-
-  def enablesb():
-    vm.write_efivar(SECURE_BOOT_ENABLE_GUID, "SecureBootEnable", b"\x01", append=False)
 
   def installnew():
     # Copy packages to VM
@@ -102,7 +137,8 @@ def execute(args):
 
   def cleansigs(path):
     # Remove exisiting signatures from the binary
-    while subprocess.run(["sbattach", "--remove", path]).returncode == 0:
+    while subprocess.run(["sbattach", "--remove", path],
+                         capture_output=not DEBUG).returncode == 0:
       pass
 
   def sbsign_file(with_key, path):
@@ -111,24 +147,25 @@ def execute(args):
       "--key", os.path.join(TEMPDIR.name, f"{with_key}.key"),
       "--cert", os.path.join(TEMPDIR.name, f"{with_key}.pem"),
       "--output", path,
-      path])
+      path], capture_output=not DEBUG)
     assert result.returncode == 0, f"Failed to sign {path}"
 
-  SHIM_PATH = f"/boot/efi/EFI/ubuntu/shim{EFI_SUFFIXES[args.arch]}"
-  GRUB_PATH = f"/boot/efi/EFI/ubuntu/grub{EFI_SUFFIXES[args.arch]}"
+  SHIM_ESP_PATH = f"/boot/efi/EFI/ubuntu/shim{EFI_SUFFIXES[args.arch]}"
+  GRUB_ESP_PATH = f"/boot/efi/EFI/ubuntu/grub{EFI_SUFFIXES[args.arch]}"
 
-  def sbsignnew():
-    SIGN_PATHS = [ ("db", SHIM_PATH), ("MokList", GRUB_PATH) ]
+  def sign_shim():
+    with vm.remote_file(SHIM_ESP_PATH) as rf:
+      sbsign_file("db", rf.local_path)
 
-    for with_key, remote_path in SIGN_PATHS:
-      with vm.remote_file(remote_path) as rf:
-        sbsign_file(with_key, rf.local_path)
+  def sign_grub():
+    with vm.remote_file(GRUB_ESP_PATH) as rf:
+      sbsign_file("MokList", rf.local_path)
 
-  def sbstripshim():
+  def strip_shim():
     # Boot as an ephemeral snapshot
     vm.start(ephemeral_snapshot=True)
     # Clean signatures
-    with vm.remote_file(SHIM_PATH) as rf:
+    with vm.remote_file(SHIM_ESP_PATH) as rf:
       cleansigs(rf.local_path)
     # Reboot and verify that we get "Access denied"
     vm.reboot(wait=False)
@@ -137,11 +174,11 @@ def execute(args):
     vm.forceshutdown()
     vm.waitshutdown()
 
-  def sbstripgrub():
+  def strip_grub():
     # Boot as an ephemeral snapshot
     vm.start(ephemeral_snapshot=True)
     # Clean signatures
-    with vm.remote_file(GRUB_PATH) as rf:
+    with vm.remote_file(GRUB_ESP_PATH) as rf:
       cleansigs(rf.local_path)
     # Reboot and wait for error from MokManager
     vm.reboot(wait=False)
@@ -149,7 +186,7 @@ def execute(args):
     # Force shutdown VM
     vm.forceshutdown()
 
-  def sbstripkernel():
+  def strip_kernel():
     # Boot as an ephemeral snapshot
     vm.start(ephemeral_snapshot=True)
     # Find all kernels
@@ -167,30 +204,34 @@ def execute(args):
     vm.forceshutdown()
 
   TASKS = [
-    (lambda: args.secboot == Secboot.SIGN,
-      setupsbkeys,  "Generate and enrol Secure Boot keys"),
-    (lambda: args.secboot == Secboot.SIGN,
-      disablesb,    "Disable Secure Boot"),
+    (lambda: not shim_is_uefica_signed,
+      setup_db_key,   "Generate and enrol db key"),
+    (lambda: not grub_is_canonical_signed,
+      setup_mok_key,  "Generate and enrol MokList key"),
+    (lambda: not shim_is_uefica_signed or not grub_is_canonical_signed,
+      vm.disablesb,   "Disable Secure Boot"),
     (lambda: True,
-      vm.start,     "Boot and provision image"),
+      vm.start,       "Boot and provision image"),
     (lambda: True,
-      installnew,   "Install new bootloaders"),
-    (lambda: args.secboot == Secboot.SIGN,
-      sbsignnew,    "Sign new bootloaders"),
+      installnew,     "Install new bootloaders"),
+    (lambda: not shim_is_uefica_signed,
+      sign_shim,      "Sign shim with db key"),
+    (lambda: not grub_is_canonical_signed,
+      sign_grub,      "Sign GRUB with MokList key"),
     (lambda: True,
-      vm.shutdown,  "Shut down virtual machine"),
-    (lambda: args.secboot == Secboot.SIGN,
-      enablesb,     "Enable Secure Boot"),
+      vm.shutdown,    "Shut down virtual machine"),
+    (lambda: not shim_is_uefica_signed or not grub_is_canonical_signed,
+      vm.enablesb,    "Enable Secure Boot"),
     (lambda: True,
-      vm.start,     "Boot with new bootloaders"),
+      vm.start,       "Boot with new bootloaders"),
     (lambda: True,
-      vm.shutdown,  "Shut down virtual machine"),
-    (lambda: args.secboot != Secboot.NONE,
-     sbstripshim,   "Secure Boot: stripping shim signature"),
-    (lambda: args.secboot != Secboot.NONE,
-     sbstripgrub,   "Secure Boot: stripping GRUB signature"),
-    (lambda: args.secboot != Secboot.NONE,
-     sbstripkernel, "Secure Boot: stripping kernel signature"),
+      vm.shutdown,    "Shut down virtual machine"),
+    (lambda: True,
+      strip_shim,     "Secure Boot: stripping shim signature"),
+    (lambda: True,
+      strip_grub,     "Secure Boot: stripping GRUB signature"),
+    (lambda: True,
+      strip_kernel,   "Secure Boot: stripping kernel signature"),
   ]
 
   for predicate, do_task, msg in TASKS:

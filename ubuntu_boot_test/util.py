@@ -44,17 +44,6 @@ class Firmware(Enum):
   def __str__(self):
     return self.value
 
-class Secboot(Enum):
-  """Secure Boot configuration
-  """
-  NONE      = "none"
-  SIGN      = "sign"
-  MS        = "ms"
-
-  def __str__(self):
-    return self.value
-
-
 def host_kernel_arch():
   """Determine the host's kernel architecture
   """
@@ -107,9 +96,9 @@ def validate_packages(expected_package_set, package_paths):
   return True
 
 def download_packages(packages, dest_path):
-  result = subprocess.run(
-    ["apt-get", "download"] + list(packages),
-    cwd=dest_path)
+  result = subprocess.run(["apt-get", "download"] + list(packages),
+    cwd=dest_path,
+    capture_output=not DEBUG)
   assert result.returncode == 0, "Failed to download packages"
 
 def prepare_packages(tempdir_path, expected_package_set, cmdline_package_paths):
@@ -187,3 +176,18 @@ def gen_efi_signkey():
     crypto.dump_certificate(crypto.FILETYPE_ASN1, cert))
 
   return (pem_private_key, pem_certificate, esl_certificate)
+
+def is_uefica_signed(path):
+  uefica_dir = os.path.join(os.path.dirname(__file__), "uefica")
+  for filename in os.listdir(uefica_dir):
+    uefica_path = os.path.join(uefica_dir, filename)
+    result = subprocess.run(["sbverify", "--cert", uefica_path, path],
+                            capture_output=not DEBUG)
+    if result.returncode == 0:
+      return True
+  return False
+
+def is_canonical_signed(path):
+  canonical_uefi_ca_path = os.path.join(os.path.dirname(__file__), "canonical-uefi-ca.pem")
+  result = subprocess.run(["sbverify", "--cert", canonical_uefi_ca_path, path], capture_output=not DEBUG)
+  return result.returncode == 0

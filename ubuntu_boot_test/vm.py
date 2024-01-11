@@ -79,7 +79,8 @@ def ensure_vsock_accessible():
 def create_cloud_init_seed(dest_path):
   cidata_path = os.path.join(os.path.dirname(__file__), "cidata")
   result = subprocess.run(["genisoimage", "-joliet", "-rock", "-quiet",
-    "-output", dest_path, "-volid", "cidata", cidata_path])
+    "-output", dest_path, "-volid", "cidata", cidata_path],
+    capture_output=not DEBUG)
   assert result.returncode == 0
 
 class VirtualMachine:
@@ -242,10 +243,7 @@ class VirtualMachine:
       "-o", "UserKnownHostsFile=/dev/null",
       "-P", "2222"] +
       src_file_paths +
-      [f"root@localhost:{dest_dir_path}"], capture_output=True)
-    if DEBUG:
-      print(result.stdout.decode())
-      print(result.stderr.decode(), file=sys.stderr)
+      [f"root@localhost:{dest_dir_path}"], capture_output=not DEBUG)
     assert result.returncode == 0
 
   def get_files(self, src_file_paths, dest_dir_path):
@@ -254,10 +252,7 @@ class VirtualMachine:
       "-o", "UserKnownHostsFile=/dev/null",
       "-P", "2222"] +
       [ f"root@localhost:{src_file_path}" for src_file_path in src_file_paths ] +
-      [ dest_dir_path ], capture_output=True)
-    if DEBUG:
-      print(result.stdout.decode())
-      print(result.stderr.decode(), file=sys.stderr)
+      [ dest_dir_path ], capture_output=not DEBUG)
     assert result.returncode == 0
 
   def remote_file(self, remote_path):
@@ -278,3 +273,9 @@ class VirtualMachine:
         self._vm.copy_files([self.local_path], self._remote_path)
 
     return RemoteFileContext(self, remote_path, self._vmpath)
+
+  def disablesb(self):
+    self.write_efivar(SECURE_BOOT_ENABLE_GUID, "SecureBootEnable", b"\x00", append=False)
+
+  def enablesb(self):
+    self.write_efivar(SECURE_BOOT_ENABLE_GUID, "SecureBootEnable", b"\x01", append=False)

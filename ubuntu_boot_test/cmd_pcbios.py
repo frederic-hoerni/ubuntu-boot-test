@@ -43,7 +43,7 @@ def execute(args):
   # Package paths to install
   package_paths = prepare_packages(TEMPDIR.name, PACKAGE_SET, args.packages)
   # Create virtual machine
-  vm = VirtualMachine(args.release, args.arch, Firmware.PCBIOS, Secboot.NONE)
+  vm = VirtualMachine(args.release, args.arch, Firmware.PCBIOS, secboot=False)
 
   def installnew():
     # Copy packages to VM

@@ -22,6 +22,7 @@ from pyuefivars.edk2 import EDK2UEFIVarStore
 from ubuntu_boot_test.config import *
 from ubuntu_boot_test.util import *
 import atexit
+import binascii
 import os
 import re
 import shutil
@@ -125,6 +126,15 @@ class VirtualMachine:
       print(f"Created disk image {self._disk_image_path}")
       print(f"Created cloud-init seed {self._cloud_init_seed_path}")
 
+  def dump_vars(self):
+    # Read current variable store
+    with open(self._uefi_vars_path, "rb") as f:
+      vars_data = f.read()
+    # Find existing variable
+    varstore = EDK2UEFIVarStore(vars_data)
+    for var in varstore.vars:
+      print(f"{binascii.hexlify(var.guid)}:{var.name} = {binascii.hexlify(var.data)}")
+
   def write_efivar(self, guid, name, data, append=True):
     # Read current variable store
     with open(self._uefi_vars_path, "rb") as f:
@@ -132,7 +142,7 @@ class VirtualMachine:
     # Find existing variable
     varstore = EDK2UEFIVarStore(vars_data)
     found = False
-    for idx, var in enumerate(varstore.vars):
+    for var in varstore.vars:
       if var.guid == guid and var.name == name:
         if append:
           var.data += data
@@ -216,6 +226,10 @@ class VirtualMachine:
     connfd.close()
 
   def waitserial(self, data):
+    # Wait for serial to come up
+    while not os.access(self._serial_socket, os.F_OK):
+      pass
+    # Wait for data
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as serfd:
       serfd.connect(self._serial_socket)
       serp = fdpexpect.fdspawn(serfd, timeout=vm_waittimeout)

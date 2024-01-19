@@ -19,6 +19,7 @@
 from enum import Enum
 from OpenSSL import crypto
 from ubuntu_boot_test.config import *
+import binascii
 import os
 import requests
 import struct
@@ -122,6 +123,10 @@ EFI_CERT_X509_GUID = bytes((
   0xa1, 0x59, 0xc0, 0xa5, 0xe4, 0x94, 0xa7, 0x4a,
   0x87, 0xb5, 0xab, 0x15, 0x5c, 0x2b, 0xf0, 0x72))
 
+EFI_CERT_SHA256_GUID = bytes((
+  0x26, 0x16, 0xc4, 0xc1, 0x4c, 0x50, 0x92, 0x40,
+  0xac, 0xa9, 0x41, 0xf9, 0x36, 0x93, 0x43, 0x28))
+
 EFI_GLOBAL_VARIABLE_GUID = bytes((
   0x61, 0xdf, 0xe4, 0x8b, 0xca, 0x93, 0xd2, 0x11,
   0xaa, 0x0d, 0x00, 0xe0, 0x98, 0x03, 0x2b, 0x8c))
@@ -152,6 +157,26 @@ def asn1_to_efi(asn1_data):
                               signature_header_size,
                               signature_size) + \
          SIGNATURE_OWNER_GUID + asn1_data
+
+def pe_to_efihash(pe_path):
+  # Use pesign to get the authenticode hash of the PE
+  # This pulls in pesign as yet another dependency, maybe we want to use:
+  # https://git.launchpad.net/~mkukri/+git/sbsigntool/tree/src/sbhash.c
+  result = subprocess.run(["pesign", "-h", "-i", pe_path], capture_output=True)
+  assert result.returncode == 0
+  digest = binascii.unhexlify(result.stdout.decode().split(" ")[0])
+  assert len(digest) == 32
+
+  # Create ESL
+  signature_list_size = 16 + 4 + 4 + 4 + \
+                          16 + len(digest)
+  signature_header_size = 0
+  signature_size = 16 + len(digest)
+  return EFI_CERT_SHA256_GUID + \
+         struct.pack("<III", signature_list_size,
+                              signature_header_size,
+                              signature_size) + \
+         SIGNATURE_OWNER_GUID + digest
 
 def gen_efi_signkey():
   """Generate an X509 signing key and certificate

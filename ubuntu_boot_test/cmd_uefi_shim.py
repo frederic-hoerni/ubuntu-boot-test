@@ -93,6 +93,10 @@ def execute(args):
     "shim-signed",
     SHIM_SIGNED_PATH[args.arch]))
 
+  # Calculate shim hash ESL for revocation test
+  shim_hash_esl = pe_to_efihash(os.path.join(
+    TEMPDIR.name, "shim-signed", SHIM_SIGNED_PATH[args.arch]))
+
   # Determine if GRUB is signed by the Canonical UEFI CA
   grub_signed_deb_path = None
   for package_path in package_paths:
@@ -106,9 +110,11 @@ def execute(args):
       capture_output=not DEBUG)
   assert result.returncode == 0
   grub_is_canonical_signed = is_canonical_signed(os.path.join(
-    TEMPDIR.name,
-    "grub-efi-signed",
-    GRUB_SIGNED_PATH[args.arch]))
+    TEMPDIR.name, "grub-efi-signed", GRUB_SIGNED_PATH[args.arch]))
+
+  # Calculate GRUB hash ESL for revocation test
+  grub_hash_esl = pe_to_efihash(os.path.join(
+    TEMPDIR.name, "grub-efi-signed", GRUB_SIGNED_PATH[args.arch]))
 
   # Create virtual machine
   vm = VirtualMachine(args.release, args.arch, Firmware.UEFI, secboot=True)
@@ -203,35 +209,67 @@ def execute(args):
     # Force shutdown VM
     vm.forceshutdown()
 
+  def revoke_hash_esl(varguid, varname, hash_esl, failmsg):
+    # Add binary hash ESL
+    vm.write_efivar(varguid, varname, hash_esl, append=False)
+    # Boot as an ephemeral snapshot
+    vm.start(ephemeral_snapshot=True, wait=False)
+    # Wait for boot failure
+    vm.waitserial(failmsg)
+    # Force shutdown VM
+    vm.forceshutdown()
+    # Clear dbx
+    # NOTE: this has to have at least *something* in it
+    #        OVMF freaks out with a zero byte dbx
+    vm.write_efivar(varguid, varname, b"\x00", append=False)
+
+  def revoke_shim_dbx():
+    revoke_hash_esl(EFI_IMAGE_SECURITY_DATABASE_GUID, "dbx", shim_hash_esl,
+      f"shim{EFI_SUFFIXES[args.arch]}: Access Denied".encode())
+
+  def revoke_grub_dbx():
+    revoke_hash_esl(EFI_IMAGE_SECURITY_DATABASE_GUID, "dbx", grub_hash_esl,
+      b"Verification failed: (0x1A) Security Violation")
+
+  def revoke_grub_mlx():
+    revoke_hash_esl(SHIM_LOCK_GUID, "MokListX", grub_hash_esl,
+      b"Verification failed: (0x1A) Security Violation")
+
   TASKS = [
     (lambda: not shim_is_uefica_signed,
-      setup_db_key,   "Generate and enrol db key"),
+      setup_db_key,     "Generate and enrol db key"),
     (lambda: not grub_is_canonical_signed,
-      setup_mok_key,  "Generate and enrol MokList key"),
+      setup_mok_key,    "Generate and enrol MokList key"),
     (lambda: not shim_is_uefica_signed or not grub_is_canonical_signed,
-      vm.disablesb,   "Disable Secure Boot"),
+      vm.disablesb,     "Disable Secure Boot"),
     (lambda: True,
-      vm.start,       "Boot and provision image"),
+      vm.start,         "Boot and provision image"),
     (lambda: True,
-      installnew,     "Install new bootloaders"),
+      installnew,       "Install new bootloaders"),
     (lambda: not shim_is_uefica_signed,
-      sign_shim,      "Sign shim with db key"),
+      sign_shim,        "Sign shim with db key"),
     (lambda: not grub_is_canonical_signed,
-      sign_grub,      "Sign GRUB with MokList key"),
+      sign_grub,        "Sign GRUB with MokList key"),
     (lambda: True,
-      vm.shutdown,    "Shut down virtual machine"),
+      vm.shutdown,      "Shut down virtual machine"),
     (lambda: not shim_is_uefica_signed or not grub_is_canonical_signed,
-      vm.enablesb,    "Enable Secure Boot"),
+      vm.enablesb,      "Enable Secure Boot"),
     (lambda: True,
-      vm.start,       "Boot with new bootloaders"),
+      vm.start,         "Boot with new bootloaders"),
     (lambda: True,
-      vm.shutdown,    "Shut down virtual machine"),
+      vm.shutdown,      "Shut down virtual machine"),
     (lambda: True,
-      strip_shim,     "Secure Boot: stripping shim signature"),
+      strip_shim,       "Secure Boot: stripping shim signature"),
     (lambda: True,
-      strip_grub,     "Secure Boot: stripping GRUB signature"),
+      strip_grub,       "Secure Boot: stripping GRUB signature"),
     (lambda: True,
-      strip_kernel,   "Secure Boot: stripping kernel signature"),
+      strip_kernel,     "Secure Boot: stripping kernel signature"),
+    (lambda: True,
+      revoke_shim_dbx,  "Secure Boot: revoking shim via dbx"),
+    (lambda: True,
+      revoke_grub_dbx,  "Secure Boot: revoking GRUB via dbx"),
+    (lambda: True,
+      revoke_grub_mlx,  "Secure Boot: revoking GRUB via MokListX"),
   ]
 
   for predicate, do_task, msg in TASKS:

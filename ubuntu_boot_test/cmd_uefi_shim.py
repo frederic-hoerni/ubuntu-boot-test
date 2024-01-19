@@ -57,17 +57,20 @@ def execute(args):
 
   EFI_SUFFIXES = {
     Arch.AMD64: "x64.efi",
-    Arch.ARM64: "a64.efi"
+    Arch.ARM64: "aa64.efi"
   }
+
+  SHIM_ESP_PATH = f"/boot/efi/EFI/ubuntu/shim{EFI_SUFFIXES[args.arch]}"
+  GRUB_ESP_PATH = f"/boot/efi/EFI/ubuntu/grub{EFI_SUFFIXES[args.arch]}"
 
   SHIM_SIGNED_PATH = {
     Arch.AMD64: "usr/lib/shim/shimx64.efi.signed.latest",
-    Arch.ARM64: "usr/lib/shim/shima64.efi.signed.latest",
+    Arch.ARM64: "usr/lib/shim/shimaa64.efi.signed.latest",
   }
 
   GRUB_SIGNED_PATH = {
     Arch.AMD64: "usr/lib/grub/x86_64-efi-signed/grubx64.efi.signed",
-    Arch.ARM64: "usr/lib/grub/arm64-efi-signed/gruba64.efi.signed",
+    Arch.ARM64: "usr/lib/grub/arm64-efi-signed/grubaa64.efi.signed",
   }
 
   # Package paths to install
@@ -149,9 +152,6 @@ def execute(args):
       "--output", path,
       path], capture_output=not DEBUG)
     assert result.returncode == 0, f"Failed to sign {path}"
-
-  SHIM_ESP_PATH = f"/boot/efi/EFI/ubuntu/shim{EFI_SUFFIXES[args.arch]}"
-  GRUB_ESP_PATH = f"/boot/efi/EFI/ubuntu/grub{EFI_SUFFIXES[args.arch]}"
 
   def sign_shim():
     with vm.remote_file(SHIM_ESP_PATH) as rf:

@@ -162,10 +162,17 @@ class VirtualMachine:
     if DEBUG:
       serialcon += ",logfile=/dev/tty"
 
+    if kvm_supported(self._arch):
+      accel = "kvm"
+      cpu = "host"
+    else:
+      accel = "tcg"
+      cpu = self._config["cpu"]
+
     opts = [self._config["cmd"],
       "-m", self._config["ram"],
-      "-M", f"{self._config['machine']},accel={accel_for(self._arch)}",
-      "-cpu", f"{self._config['cpu']}",
+      "-M", f"{self._config['machine']},accel={accel}",
+      "-cpu", cpu,
       "-nographic",
       "-monitor", f"unix:{self._monitor_socket},server,nowait",
       "-serial", serialcon,

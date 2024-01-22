@@ -55,16 +55,14 @@ def host_kernel_arch():
     return Arch.ARM64
   assert False, f"Unknown kernel architecture {machine}"
 
-def accel_for(guest_arch):
+def kvm_supported(guest_arch):
   # Accelaration can be used when the guest has the same architecture as the
   # host kernel (NOTE: this is a simplification but it's good enough here)
   # We also need to ensure that the KVM device node is exposed and accessible
   if host_kernel_arch() == guest_arch and \
       os.access("/dev/kvm", os.R_OK | os.W_OK):
-    return "kvm"
-
-  # Otherwise we fall back to JIT recompilation using TCG
-  return "tcg"
+    return True
+  return False
 
 def download_image(release, arch, dest_path):
   arch = { Arch.AMD64: "amd64",

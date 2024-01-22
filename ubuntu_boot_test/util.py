@@ -20,6 +20,7 @@ from enum import Enum
 from OpenSSL import crypto
 from ubuntu_boot_test.config import *
 import binascii
+import gzip
 import os
 import requests
 import struct
@@ -214,3 +215,33 @@ def is_canonical_signed(path):
   canonical_uefi_ca_path = os.path.join(os.path.dirname(__file__), "canonical-uefi-ca.pem")
   result = subprocess.run(["sbverify", "--cert", canonical_uefi_ca_path, path], capture_output=not DEBUG)
   return result.returncode == 0
+
+
+def maybe_gzip_ctx(path):
+  class GzipCtx:
+    def __init__(self, compressed_path):
+      self._compressed_path = compressed_path
+      self._uncompressed_path = f"{compressed_path}.ungz"
+      with open(self._compressed_path, "rb") as compressed_file:
+        with open(self._uncompressed_path, "wb") as uncompressed_file:
+          uncompressed_file.write(gzip.decompress(compressed_file.read()))
+      self.path = self._uncompressed_path
+    def __enter__(self):
+      return self
+    def __exit__(self, type, value, traceback):
+      with open(self._uncompressed_path, "rb") as uncompressed_file:
+        with open(self._compressed_path, "wb") as compressed_file:
+          compressed_file.write(gzip.compress(uncompressed_file.read()))
+
+  class NullCtx:
+    def __init__(self, path):
+      self.path = path
+    def __enter__(self):
+      return self
+    def __exit__(self, type, value, traceback):
+      pass
+
+  try:
+    return GzipCtx(path)
+  except:
+    return NullCtx(path)

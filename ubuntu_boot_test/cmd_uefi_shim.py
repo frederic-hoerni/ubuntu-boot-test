@@ -145,18 +145,19 @@ def execute(args):
     vm.run_cmd(["update-grub"])
 
   def cleansigs(path):
-    # Remove exisiting signatures from the binary
-    while subprocess.run(["sbattach", "--remove", path],
-                         capture_output=not DEBUG).returncode == 0:
-      pass
+    with maybe_gzip_ctx(path) as ctx:
+      # Remove exisiting signatures from the binary
+      while subprocess.run(["sbattach", "--remove", ctx.path],
+                           capture_output=not DEBUG).returncode == 0:
+        pass
 
   def sbsign_file(with_key, path):
-    cleansigs(path)
-    result = subprocess.run(["sbsign",
-      "--key", os.path.join(TEMPDIR.name, f"{with_key}.key"),
-      "--cert", os.path.join(TEMPDIR.name, f"{with_key}.pem"),
-      "--output", path,
-      path], capture_output=not DEBUG)
+    with maybe_gzip_ctx(path) as ctx:
+      cleansigs(ctx.path)
+      result = subprocess.run(["sbsign",
+        "--key", os.path.join(TEMPDIR.name, f"{with_key}.key"),
+        "--cert", os.path.join(TEMPDIR.name, f"{with_key}.pem"),
+        "--output", ctx.path, ctx.path], capture_output=not DEBUG)
     assert result.returncode == 0, f"Failed to sign {path}"
 
   def sign_shim():

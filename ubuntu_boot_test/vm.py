@@ -139,6 +139,7 @@ class VirtualMachine:
     # Read current variable store
     with open(self._uefi_vars_path, "rb") as f:
       vars_data = f.read()
+      vars_length = f.tell()
     # Find existing variable
     varstore = EDK2UEFIVarStore(vars_data)
     found = False
@@ -155,7 +156,14 @@ class VirtualMachine:
       varstore.vars.append(UEFIVar(name, data, guid, 3))
     # Dump variable store back out
     with open(self._uefi_vars_path, "wb") as f:
+      # FIXME: this is a workaround the incorrect length
+      # value used by the bytes() function of EDK2UEFIVarStore
+      # This means that the original file length gets lost and
+      # we must manually pad the thing
+      varstore.filelen = varstore.length
       f.write(bytes(varstore))
+      if f.tell() < vars_length:
+        f.write(b"\xff" * (vars_length - f.tell()))
 
   def start(self, ephemeral_snapshot=False, wait=True):
     serialcon = f"unix:{self._serial_socket},server,nowait"

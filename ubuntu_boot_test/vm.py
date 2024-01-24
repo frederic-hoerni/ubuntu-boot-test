@@ -128,7 +128,7 @@ class VirtualMachine:
       print(f"Created disk image {self._disk_image_path}")
       print(f"Created cloud-init seed {self._cloud_init_seed_path}")
 
-  def dump_vars(self):
+  def dump_efivars(self):
     # Read current variable store
     with open(self._uefi_vars_path, "rb") as f:
       vars_data = f.read()
@@ -136,6 +136,18 @@ class VirtualMachine:
     varstore = EDK2UEFIVarStore(vars_data)
     for var in varstore.vars:
       print(f"{binascii.hexlify(var.guid)}:{var.name} = {binascii.hexlify(var.data)}")
+
+  def read_efivar(self, guid, name):
+    # Read current variable store
+    with open(self._uefi_vars_path, "rb") as f:
+      vars_data = f.read()
+      vars_length = f.tell()
+    # Find variable
+    varstore = EDK2UEFIVarStore(vars_data)
+    for var in varstore.vars:
+      if var.guid == guid and var.name == name:
+        return var.data
+    return None
 
   def write_efivar(self, guid, name, data, append=True):
     # Read current variable store
@@ -149,6 +161,8 @@ class VirtualMachine:
       if var.guid == guid and var.name == name:
         if append:
           var.data += data
+        elif data is None:
+          del var
         else:
           var.data = data
         found = True

@@ -93,6 +93,9 @@ def execute(args):
   # Calculate shim hash ESL for revocation test
   shim_hash_esl = pe_to_efihash(os.path.join(
     TEMPDIR.name, "shim-signed", SHIM_SIGNED_PATH))
+  # Parse shim .sbat section
+  shim_sbat = decode_image_sbat(TEMPDIR.name, os.path.join(
+    TEMPDIR.name, "shim-signed", SHIM_SIGNED_PATH))
 
   # Determine if GRUB is signed by the Canonical UEFI CA
   grub_signed_deb_path = None
@@ -110,6 +113,9 @@ def execute(args):
     TEMPDIR.name, "grub-efi-signed", GRUB_SIGNED_PATH))
   # Calculate GRUB hash ESL for revocation test
   grub_hash_esl = pe_to_efihash(os.path.join(
+    TEMPDIR.name, "grub-efi-signed", GRUB_SIGNED_PATH))
+  # Parse GRUB .sbat section
+  grub_sbat = decode_image_sbat(TEMPDIR.name, os.path.join(
     TEMPDIR.name, "grub-efi-signed", GRUB_SIGNED_PATH))
 
   # Create virtual machine
@@ -207,18 +213,15 @@ def execute(args):
     vm.forceshutdown()
 
   def revoke_hash_esl(varguid, varname, hash_esl, failmsg):
-    # Add binary hash ESL
-    vm.write_efivar(varguid, varname, hash_esl, append=False)
-    # Boot as an ephemeral snapshot
+    bk = vm.read_efivar(varguid, varname)
+    # Add binary hash to revocation list
+    vm.write_efivar(varguid, varname, hash_esl, append=True)
+    # Ensure it is revoked
     vm.start(ephemeral_snapshot=True, wait=False)
-    # Wait for boot failure
     vm.waitserial(failmsg)
-    # Force shutdown VM
     vm.forceshutdown()
-    # Clear dbx
-    # NOTE: this has to have at least *something* in it
-    #        OVMF freaks out with a zero byte dbx
-    vm.write_efivar(varguid, varname, b"\x00", append=False)
+    # Restore
+    vm.write_efivar(varguid, varname, bk, append=False)
 
   def revoke_shim_dbx():
     revoke_hash_esl(EFI_IMAGE_SECURITY_DATABASE_GUID, "dbx", shim_hash_esl,
@@ -230,6 +233,27 @@ def execute(args):
 
   def revoke_grub_mlx():
     revoke_hash_esl(SHIM_LOCK_GUID, "MokListX", grub_hash_esl,
+      b"Verification failed: (0x1A) Security Violation")
+
+  def revoke_comp_sbat(cnam, cgen, failmsg):
+    bk = vm.read_efivar(SHIM_LOCK_GUID, "SbatLevel")
+    # Set SbatLevel for component
+    sbat_level = decode_sbat_level(bk)
+    sbat_level.entries[cnam].cgen = cgen
+    vm.write_efivar(SHIM_LOCK_GUID, "SbatLevel", encode_sbat_level(sbat_level), append=False)
+    # Ensure it is revoked
+    vm.start(ephemeral_snapshot=True, wait=False)
+    vm.waitserial(failmsg)
+    vm.forceshutdown()
+    # Restore
+    vm.write_efivar(SHIM_LOCK_GUID, "SbatLevel", bk, append=False)
+
+  def revoke_shim_sbat():
+    revoke_comp_sbat("shim", shim_sbat["shim"].cgen + 1,
+      b"Verifiying shim SBAT data failed: Security Policy Violation")
+
+  def revoke_grub_sbat():
+    revoke_comp_sbat("grub", grub_sbat["grub"].cgen + 1,
       b"Verification failed: (0x1A) Security Violation")
 
   TASKS = [
@@ -267,6 +291,10 @@ def execute(args):
       revoke_grub_dbx,  "Secure Boot: revoking GRUB via dbx"),
     (lambda: True,
       revoke_grub_mlx,  "Secure Boot: revoking GRUB via MokListX"),
+    (lambda: True,
+      revoke_shim_sbat, "Secure Boot: revoking shim via SBAT"),
+    (lambda: True,
+      revoke_grub_sbat, "Secure Boot: revoking GRUB via SBAT"),
   ]
 
   for predicate, do_task, msg in TASKS:

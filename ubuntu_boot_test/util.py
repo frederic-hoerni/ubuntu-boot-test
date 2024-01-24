@@ -245,3 +245,67 @@ def maybe_gzip_ctx(path):
     return GzipCtx(path)
   except:
     return NullCtx(path)
+
+class SbatEntry:
+  def __init__(self, line):
+    cols = map(lambda col: col.strip(), line.split(b","))
+    self.cnam = next(cols).decode()
+    self.cgen = int(next(cols))
+    self.vnam = next(cols).decode()
+    self.pnam = next(cols).decode()
+    self.vver = next(cols).decode()
+    self.vurl = next(cols).decode()
+
+def decode_image_sbat(tempdir_path: str, path: str) -> dict[str, SbatEntry]:
+  SBAT_SECTION_HDR = b"sbat,1,SBAT Version,sbat,1,https://github.com/rhboot/shim/blob/main/SBAT.md"
+
+  # Extract .sbat section from binary
+  result = subprocess.run(["objcopy",
+                           path,
+                           os.path.join(tempdir_path, "unused.efi"),
+                           "--dump-section",
+                           ".sbat=/dev/stdout"], capture_output=True)
+  assert result.returncode == 0
+
+  # Parse .sbat section
+  lines = result.stdout.split(b"\n")
+  assert lines[0] == SBAT_SECTION_HDR
+  sbat_dict = {}
+  for line in lines[1:]:
+    try:
+      ent = SbatEntry(line)
+      sbat_dict[ent.cnam] = ent
+    except:
+      continue
+
+  return sbat_dict
+
+class SbatLevelEntry:
+  def __init__(self, line):
+    cols = map(lambda col: col.strip(), line.split(b","))
+    self.cnam = next(cols).decode()
+    self.cgen = int(next(cols))
+
+class SbatLevel:
+  def __init__(self, date, entries):
+    self.date = date
+    self.entries = entries
+
+def decode_sbat_level(data: bytes) -> dict[str, SbatLevelEntry]:
+  lines = data.split(b"\n")
+  assert lines[0].startswith(b"sbat,1,")
+  entries = {}
+  for line in lines[1:]:
+    try:
+      ent = SbatLevelEntry(line)
+      entries[ent.cnam] = ent
+    except:
+      continue
+  return SbatLevel(lines[0][7:].decode(), entries)
+
+def encode_sbat_level(sbat_level: SbatLevel) -> bytes:
+  result = bytearray()
+  result.extend(f"sbat,1,{sbat_level.date}\n".encode())
+  for entry in sbat_level.entries.values():
+    result.extend(f"{entry.cnam},{entry.cgen}\n".encode())
+  return bytes(result)

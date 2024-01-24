@@ -13,7 +13,8 @@ Build-Depends: debhelper-compat (= 13),
 
 Package: ubuntu-boot-test
 Architecture: any
-Depends: genisoimage,
+Depends: binutils,
+         genisoimage,
          kmod,
          lsb-release,
          sbsigntool,

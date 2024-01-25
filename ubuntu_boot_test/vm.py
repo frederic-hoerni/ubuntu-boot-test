@@ -197,7 +197,7 @@ class VirtualMachine:
 
     opts += [
       "-drive", f"file={self._disk_image_path},if=none,id=hdd",
-      "-device", f"virtio-blk-pci,drive=hdd,serial=0,bootindex=0",
+      "-device", f"virtio-blk-pci,drive=hdd,serial=0",
       "-drive", f"file={self._cloud_init_seed_path},if=virtio,format=raw,readonly=on",
     ]
 

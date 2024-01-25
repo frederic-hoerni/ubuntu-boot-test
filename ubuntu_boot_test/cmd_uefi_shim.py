@@ -60,18 +60,18 @@ def execute(args):
     Arch.ARM64: "aa64.efi"
   }
 
+  EFI_TARGETS = {
+    Arch.AMD64: "x86_64-efi-signed",
+    Arch.ARM64: "arm64-efi-signed"
+  }
+
+  # Paths of packaged loaders
+  SHIM_SIGNED_PATH = f"usr/lib/shim/shim{EFI_SUFFIXES[args.arch]}.signed.latest"
+  GRUB_SIGNED_PATH = f"usr/lib/grub/{EFI_TARGETS[args.arch]}/grub{EFI_SUFFIXES[args.arch]}.signed"
+
+  # Paths of installed loaders
   SHIM_ESP_PATH = f"/boot/efi/EFI/ubuntu/shim{EFI_SUFFIXES[args.arch]}"
   GRUB_ESP_PATH = f"/boot/efi/EFI/ubuntu/grub{EFI_SUFFIXES[args.arch]}"
-
-  SHIM_SIGNED_PATH = {
-    Arch.AMD64: "usr/lib/shim/shimx64.efi.signed.latest",
-    Arch.ARM64: "usr/lib/shim/shimaa64.efi.signed.latest",
-  }
-
-  GRUB_SIGNED_PATH = {
-    Arch.AMD64: "usr/lib/grub/x86_64-efi-signed/grubx64.efi.signed",
-    Arch.ARM64: "usr/lib/grub/arm64-efi-signed/grubaa64.efi.signed",
-  }
 
   # Package paths to install
   package_paths = prepare_packages(TEMPDIR.name, PACKAGE_SETS[args.arch], args.packages)
@@ -89,13 +89,10 @@ def execute(args):
       capture_output=not DEBUG)
   assert result.returncode == 0
   shim_is_uefica_signed = is_uefica_signed(os.path.join(
-    TEMPDIR.name,
-    "shim-signed",
-    SHIM_SIGNED_PATH[args.arch]))
-
+    TEMPDIR.name, "shim-signed", SHIM_SIGNED_PATH))
   # Calculate shim hash ESL for revocation test
   shim_hash_esl = pe_to_efihash(os.path.join(
-    TEMPDIR.name, "shim-signed", SHIM_SIGNED_PATH[args.arch]))
+    TEMPDIR.name, "shim-signed", SHIM_SIGNED_PATH))
 
   # Determine if GRUB is signed by the Canonical UEFI CA
   grub_signed_deb_path = None
@@ -110,11 +107,10 @@ def execute(args):
       capture_output=not DEBUG)
   assert result.returncode == 0
   grub_is_canonical_signed = is_canonical_signed(os.path.join(
-    TEMPDIR.name, "grub-efi-signed", GRUB_SIGNED_PATH[args.arch]))
-
+    TEMPDIR.name, "grub-efi-signed", GRUB_SIGNED_PATH))
   # Calculate GRUB hash ESL for revocation test
   grub_hash_esl = pe_to_efihash(os.path.join(
-    TEMPDIR.name, "grub-efi-signed", GRUB_SIGNED_PATH[args.arch]))
+    TEMPDIR.name, "grub-efi-signed", GRUB_SIGNED_PATH))
 
   # Create virtual machine
   vm = VirtualMachine(args.release, args.arch, Firmware.UEFI, secboot=True)

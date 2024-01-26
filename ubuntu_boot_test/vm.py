@@ -101,6 +101,8 @@ class VirtualMachine:
     if self._firmware == Firmware.UEFI:
       self._uefi_vars_path = os.path.join(self._vmpath, "UEFI_VARS.fd")
       shutil.copy(self._config["fw_vars_template"][secboot], self._uefi_vars_path)
+      # Disable 5 second boot timeout
+      self.write_efivar(EFI_GLOBAL_VARIABLE_GUID, "Timeout", b"\x00\x00")
 
     self._disk_image_path = os.path.join(self._vmpath, "disk.img")
     download_image(release, arch, self._disk_image_path)

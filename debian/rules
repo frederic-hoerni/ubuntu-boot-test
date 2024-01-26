@@ -2,6 +2,19 @@
 
 #export DH_VERBOSE = 1
 export PYBUILD_NAME = ubuntu-boot-test
+include /usr/share/dpkg/pkg-info.mk
 
 %:
 	dh $@ --with python3 --buildsystem=pybuild
+
+override_dh_auto_build:
+	help2man \
+		--name "run automated bootloader tests" \
+		./ubuntu_boot_test_run --version-string "$(DEB_VERSION)" \
+		--no-discard-stderr > debian/ubuntu_boot_test_run.1
+	dh_auto_build
+
+override_dh_auto_install:
+	mkdir -p debian/ubuntu-boot-test/usr/share/man/man1/
+	mv debian/ubuntu_boot_test_run.1 debian/ubuntu-boot-test/usr/share/man/man1/
+	dh_auto_install

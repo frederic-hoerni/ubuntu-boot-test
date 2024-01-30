@@ -256,9 +256,24 @@ class SbatEntry:
     self.vver = next(cols).decode()
     self.vurl = next(cols).decode()
 
-def decode_image_sbat(tempdir_path: str, path: str) -> dict[str, SbatEntry]:
+class SbatSection:
   SBAT_SECTION_HDR = b"sbat,1,SBAT Version,sbat,1,https://github.com/rhboot/shim/blob/main/SBAT.md"
 
+  def __init__(self, data: bytes):
+    lines = data.split(b"\n")
+    assert lines[0] == self.SBAT_SECTION_HDR
+    self.entries = {}
+    for line in lines[1:]:
+      try:
+        ent = SbatEntry(line)
+        self.entries[ent.cnam] = ent
+      except:
+        continue
+
+  def get_level_for(self, cnam: str) -> int:
+    return self.entries[cnam].cgen
+
+def decode_image_sbat(tempdir_path: str, path: str) -> SbatSection:
   # Extract .sbat section from binary
   result = subprocess.run(["objcopy",
                            path,
@@ -268,44 +283,30 @@ def decode_image_sbat(tempdir_path: str, path: str) -> dict[str, SbatEntry]:
   assert result.returncode == 0
 
   # Parse .sbat section
-  lines = result.stdout.split(b"\n")
-  assert lines[0] == SBAT_SECTION_HDR
-  sbat_dict = {}
-  for line in lines[1:]:
-    try:
-      ent = SbatEntry(line)
-      sbat_dict[ent.cnam] = ent
-    except:
-      continue
-
-  return sbat_dict
-
-class SbatLevelEntry:
-  def __init__(self, line):
-    cols = map(lambda col: col.strip(), line.split(b","))
-    self.cnam = next(cols).decode()
-    self.cgen = int(next(cols))
+  return SbatSection(result.stdout)
 
 class SbatLevel:
-  def __init__(self, date, entries):
-    self.date = date
-    self.entries = entries
+  def __init__(self, data: bytes):
+    lines = data.split(b"\n")
+    assert lines[0].startswith(b"sbat,1,")
+    self.date = lines[0][7:].decode()
+    self.entries = {}
+    for line in lines[1:]:
+      try:
+        cnam, cgen = map(lambda col: col.strip(), line.split(b","))
+        self.entries[cnam.decode()] = int(cgen)
+      except:
+        continue
 
-def decode_sbat_level(data: bytes) -> dict[str, SbatLevelEntry]:
-  lines = data.split(b"\n")
-  assert lines[0].startswith(b"sbat,1,")
-  entries = {}
-  for line in lines[1:]:
-    try:
-      ent = SbatLevelEntry(line)
-      entries[ent.cnam] = ent
-    except:
-      continue
-  return SbatLevel(lines[0][7:].decode(), entries)
+  def encode(self) -> bytes:
+    result = bytearray()
+    result.extend(f"sbat,1,{self.date}\n".encode())
+    for cnam, cgen in self.entries.items():
+      result.extend(f"{cnam},{cgen}\n".encode())
+    return bytes(result)
 
-def encode_sbat_level(sbat_level: SbatLevel) -> bytes:
-  result = bytearray()
-  result.extend(f"sbat,1,{sbat_level.date}\n".encode())
-  for entry in sbat_level.entries.values():
-    result.extend(f"{entry.cnam},{entry.cgen}\n".encode())
-  return bytes(result)
+  def get_level_for(self, cnam: str) -> int:
+    return self.entries[cnam]
+
+  def set_level_for(self, cnam: str, cgen: int):
+    self.entries[cnam] = cgen

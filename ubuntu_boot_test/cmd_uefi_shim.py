@@ -238,9 +238,9 @@ def execute(args):
   def revoke_comp_sbat(cnam, cgen, failmsg):
     bk = vm.read_efivar(SHIM_LOCK_GUID, "SbatLevel")
     # Set SbatLevel for component
-    sbat_level = decode_sbat_level(bk)
-    sbat_level.entries[cnam].cgen = cgen
-    vm.write_efivar(SHIM_LOCK_GUID, "SbatLevel", encode_sbat_level(sbat_level), append=False)
+    sbat_level = SbatLevel(bk)
+    sbat_level.set_level_for(cnam, cgen)
+    vm.write_efivar(SHIM_LOCK_GUID, "SbatLevel", sbat_level.encode(), append=False)
     # Ensure it is revoked
     vm.start(ephemeral_snapshot=True, wait=False)
     vm.waitserial(failmsg)
@@ -249,11 +249,11 @@ def execute(args):
     vm.write_efivar(SHIM_LOCK_GUID, "SbatLevel", bk, append=False)
 
   def revoke_shim_sbat():
-    revoke_comp_sbat("shim", shim_sbat["shim"].cgen + 1,
+    revoke_comp_sbat("shim", shim_sbat.get_level_for("shim") + 1,
       b"Verifiying shim SBAT data failed: Security Policy Violation")
 
   def revoke_grub_sbat():
-    revoke_comp_sbat("grub", grub_sbat["grub"].cgen + 1,
+    revoke_comp_sbat("grub", grub_sbat.get_level_for("grub") + 1,
       b"Verification failed: (0x1A) Security Violation")
 
   TASKS = [

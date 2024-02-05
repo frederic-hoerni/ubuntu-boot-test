@@ -23,6 +23,7 @@ import binascii
 import gzip
 import os
 import requests
+import shutil
 import struct
 import subprocess
 import sys
@@ -103,20 +104,23 @@ def download_packages(packages, dest_path):
 
 def prepare_packages(tempdir_path, expected_package_set, cmdline_package_paths):
   if len(cmdline_package_paths) > 0:
-    # Validate packages
+    # Validate package set
     if not validate_packages(expected_package_set, cmdline_package_paths):
       exit(1)
-    # Packages are already in the filesystem
-    return cmdline_package_paths
+    # Copy packages to tempdir
+    for package_path in cmdline_package_paths:
+      shutil.copy(package_path,
+        os.path.join(tempdir_path, os.path.basename(package_path)))
   else:
     # Download packages
     download_packages(expected_package_set, tempdir_path)
-    # List package file paths
-    return [
-      os.path.join(tempdir_path, package_filename)
-      for package_filename in os.listdir(tempdir_path)
-      if package_filename.endswith("deb")
-    ]
+
+  # List package file paths
+  return [
+    os.path.join(tempdir_path, package_filename)
+    for package_filename in os.listdir(tempdir_path)
+    if package_filename.endswith("deb")
+  ]
 
 EFI_CERT_X509_GUID = bytes((
   0xa1, 0x59, 0xc0, 0xa5, 0xe4, 0x94, 0xa7, 0x4a,
@@ -216,7 +220,6 @@ def is_canonical_signed(path):
   result = subprocess.run(["sbverify", "--cert", canonical_uefi_ca_path, path], capture_output=not DEBUG)
   return result.returncode == 0
 
-
 def maybe_gzip_ctx(path):
   class GzipCtx:
     def __init__(self, compressed_path):
@@ -245,6 +248,32 @@ def maybe_gzip_ctx(path):
     return GzipCtx(path)
   except:
     return NullCtx(path)
+
+def deb_repack_ctx(tempdir, path):
+  class DebRepackCtx:
+    def __init__(self, path):
+      assert path[-4:] == ".deb"
+      self._deb_path = path
+      self.dir_path = os.path.join(tempdir, os.path.basename(path)[:-4])
+      result = subprocess.run(["dpkg-deb", "-R", self._deb_path, self.dir_path],
+        capture_output=not DEBUG)
+      assert result.returncode == 0
+    def __enter__(self):
+      return self
+    def __exit__(self, type, value, traceback):
+      # Suffix version with "+r1"
+      with open(os.path.join(self.dir_path, "DEBIAN", "control"), "rb+") as cfile:
+        lines = cfile.read().split(b"\n")
+        for idx in range(len(lines)):
+          if lines[idx].startswith(b"Version: "):
+            lines[idx] = lines[idx].strip() + b"+r1"
+        cfile.seek(0)
+        cfile.write(b"\n".join(lines))
+      # Repack deb
+      result = subprocess.run(["dpkg-deb", "-b", self.dir_path, self._deb_path],
+        capture_output=not DEBUG)
+      assert result.returncode == 0
+  return DebRepackCtx(path)
 
 class SbatEntry:
   def __init__(self, line):

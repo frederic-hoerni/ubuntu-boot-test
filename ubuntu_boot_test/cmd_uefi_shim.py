@@ -73,69 +73,54 @@ def execute(args):
   SHIM_ESP_PATH = f"/boot/efi/EFI/ubuntu/shim{EFI_SUFFIXES[args.arch]}"
   GRUB_ESP_PATH = f"/boot/efi/EFI/ubuntu/grub{EFI_SUFFIXES[args.arch]}"
 
-  # Package paths to install
+  # Prepare packages for install
   package_paths = prepare_packages(TEMPDIR.name, PACKAGE_SETS[args.arch], args.packages)
-
-  # Determine if the shim is UEFI CA signed
-  shim_deb_path = None
-  for package_path in package_paths:
-    if "shim-signed" in package_path:
-      shim_deb_path = package_path
-      break
-  assert shim_deb_path is not None
-  result = subprocess.run(["dpkg-deb", "-x",
-      shim_deb_path,
-      os.path.join(TEMPDIR.name, "shim-signed")],
-      capture_output=not DEBUG)
-  assert result.returncode == 0
-  shim_is_uefica_signed = is_uefica_signed(os.path.join(
-    TEMPDIR.name, "shim-signed", SHIM_SIGNED_PATH))
-  # Calculate shim hash ESL for revocation test
-  shim_hash_esl = pe_to_efihash(os.path.join(
-    TEMPDIR.name, "shim-signed", SHIM_SIGNED_PATH))
-  # Parse shim .sbat section
-  shim_sbat = decode_image_sbat(TEMPDIR.name, os.path.join(
-    TEMPDIR.name, "shim-signed", SHIM_SIGNED_PATH))
-
-  # Determine if GRUB is signed by the Canonical UEFI CA
-  grub_signed_deb_path = None
-  for package_path in package_paths:
-    if "grub-efi-" in package_path and "-signed" in package_path:
-      grub_signed_deb_path = package_path
-      break
-  assert grub_signed_deb_path is not None
-  result = subprocess.run(["dpkg-deb", "-x",
-      grub_signed_deb_path,
-      os.path.join(TEMPDIR.name, "grub-efi-signed")],
-      capture_output=not DEBUG)
-  assert result.returncode == 0
-  grub_is_canonical_signed = is_canonical_signed(os.path.join(
-    TEMPDIR.name, "grub-efi-signed", GRUB_SIGNED_PATH))
-  # Calculate GRUB hash ESL for revocation test
-  grub_hash_esl = pe_to_efihash(os.path.join(
-    TEMPDIR.name, "grub-efi-signed", GRUB_SIGNED_PATH))
-  # Parse GRUB .sbat section
-  grub_sbat = decode_image_sbat(TEMPDIR.name, os.path.join(
-    TEMPDIR.name, "grub-efi-signed", GRUB_SIGNED_PATH))
 
   # Create virtual machine
   vm = VirtualMachine(args.release, args.arch, Firmware.UEFI, secboot=True)
 
-  def setup_db_key():
+  def gen_sb_key(guid, name):
     pem_priv, pem_cert, esl_cert = gen_efi_signkey()
-    with open(os.path.join(TEMPDIR.name, "db.key"), "wb") as f:
+    with open(os.path.join(TEMPDIR.name, f"{name}.key"), "wb") as f:
       f.write(pem_priv)
-    with open(os.path.join(TEMPDIR.name, "db.pem"), "wb") as f:
+    with open(os.path.join(TEMPDIR.name, f"{name}.pem"), "wb") as f:
       f.write(pem_cert)
-    vm.write_efivar(EFI_IMAGE_SECURITY_DATABASE_GUID, "db", esl_cert, append=False)
+    vm.write_efivar(guid, name, esl_cert, append=True)
 
-  def setup_mok_key():
-    pem_priv, pem_cert, esl_cert = gen_efi_signkey()
-    with open(os.path.join(TEMPDIR.name, "MokList.key"), "wb") as f:
-      f.write(pem_priv)
-    with open(os.path.join(TEMPDIR.name, "MokList.pem"), "wb") as f:
-      f.write(pem_cert)
-    vm.write_efivar(SHIM_LOCK_GUID, "MokList", esl_cert, append=False)
+  def sbsign_file(with_key, path):
+    result = subprocess.run(["sbsign",
+      "--key", os.path.join(TEMPDIR.name, f"{with_key}.key"),
+      "--cert", os.path.join(TEMPDIR.name, f"{with_key}.pem"),
+      "--output", path, path], capture_output=not DEBUG)
+    assert result.returncode == 0, f"Failed to sign {path}"
+
+  shim_deb_path = None
+  grub_signed_deb_path = None
+  for package_path in package_paths:
+    if "shim-signed" in package_path:
+      shim_deb_path = package_path
+    if "grub-efi-" in package_path and "-signed" in package_path:
+      grub_signed_deb_path = package_path
+
+  with deb_repack_ctx(TEMPDIR.name, shim_deb_path) as ctx:
+    binpath = os.path.join(ctx.dir_path, SHIM_SIGNED_PATH)
+    if not is_uefica_signed(binpath):
+      # Sign shim with ephemeral key
+      gen_sb_key(EFI_IMAGE_SECURITY_DATABASE_GUID, "db")
+      sbsign_file("db", binpath)
+    # Save information needed for revocation
+    shim_hash_esl = pe_to_efihash(binpath)
+    shim_sbat = decode_image_sbat(TEMPDIR.name, binpath)
+
+  with deb_repack_ctx(TEMPDIR.name, grub_signed_deb_path) as ctx:
+    binpath = os.path.join(ctx.dir_path, GRUB_SIGNED_PATH)
+    if not is_canonical_signed(binpath):
+      # Sign GRUB with ephemeral key
+      gen_sb_key(SHIM_LOCK_GUID, "MokList")
+      sbsign_file("MokList", binpath)
+    # Save information needed for revocation
+    grub_hash_esl = pe_to_efihash(binpath)
+    grub_sbat = decode_image_sbat(TEMPDIR.name, binpath)
 
   def installnew():
     # Copy packages to VM
@@ -153,23 +138,6 @@ def execute(args):
                            capture_output=not DEBUG).returncode == 0:
         pass
 
-  def sbsign_file(with_key, path):
-    with maybe_gzip_ctx(path) as ctx:
-      cleansigs(ctx.path)
-      result = subprocess.run(["sbsign",
-        "--key", os.path.join(TEMPDIR.name, f"{with_key}.key"),
-        "--cert", os.path.join(TEMPDIR.name, f"{with_key}.pem"),
-        "--output", ctx.path, ctx.path], capture_output=not DEBUG)
-    assert result.returncode == 0, f"Failed to sign {path}"
-
-  def sign_shim():
-    with vm.remote_file(SHIM_ESP_PATH) as rf:
-      sbsign_file("db", rf.local_path)
-
-  def sign_grub():
-    with vm.remote_file(GRUB_ESP_PATH) as rf:
-      sbsign_file("MokList", rf.local_path)
-
   def strip_shim():
     # Boot as an ephemeral snapshot
     vm.start(ephemeral_snapshot=True)
@@ -181,7 +149,6 @@ def execute(args):
     vm.waitserial(f"shim{EFI_SUFFIXES[args.arch]}: Access Denied".encode())
     # Force shutdown VM
     vm.forceshutdown()
-    vm.waitshutdown()
 
   def strip_grub():
     # Boot as an ephemeral snapshot
@@ -257,24 +224,12 @@ def execute(args):
       b"Verification failed: (0x1A) Security Violation")
 
   TASKS = [
-    (lambda: not shim_is_uefica_signed,
-      setup_db_key,     "Generate and enrol db key"),
-    (lambda: not grub_is_canonical_signed,
-      setup_mok_key,    "Generate and enrol MokList key"),
-    (lambda: not shim_is_uefica_signed or not grub_is_canonical_signed,
-      vm.disablesb,     "Disable Secure Boot"),
     (lambda: True,
       vm.start,         "Boot and provision image"),
     (lambda: True,
       installnew,       "Install new bootloaders"),
-    (lambda: not shim_is_uefica_signed,
-      sign_shim,        "Sign shim with db key"),
-    (lambda: not grub_is_canonical_signed,
-      sign_grub,        "Sign GRUB with MokList key"),
     (lambda: True,
       vm.shutdown,      "Shut down virtual machine"),
-    (lambda: not shim_is_uefica_signed or not grub_is_canonical_signed,
-      vm.enablesb,      "Enable Secure Boot"),
     (lambda: True,
       vm.start,         "Boot with new bootloaders"),
     (lambda: True,

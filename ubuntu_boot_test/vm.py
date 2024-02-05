@@ -32,17 +32,14 @@ import subprocess
 import tempfile
 
 # VM configuration based on architecture and firmware type
-vmconfig_uefi = {
+vmconfig = {
   (Arch.AMD64, Firmware.UEFI): {
     "cmd": "qemu-system-x86_64",
     "machine": "q35",
     "cpu": "qemu64",
     "ram": "512",
-    "fw_code": "/usr/share/OVMF/OVMF_CODE_4M.secboot.fd",
-    "fw_vars_template": {
-      False: "/usr/share/OVMF/OVMF_VARS_4M.fd",
-      True: "/usr/share/OVMF/OVMF_VARS_4M.ms.fd"
-    }
+    "fw_code": "/usr/share/OVMF/OVMF_CODE_4M.ms.fd",
+    "fw_vars_template": "/usr/share/OVMF/OVMF_VARS_4M.ms.fd"
   },
   (Arch.AMD64, Firmware.PCBIOS): {
     "cmd": "qemu-system-x86_64",
@@ -55,11 +52,8 @@ vmconfig_uefi = {
     "machine": "virt",
     "cpu": "cortex-a72",
     "ram": "512",
-    "fw_code": "/usr/share/AAVMF/AAVMF_CODE.fd",
-    "fw_vars_template": {
-      False: "/usr/share/AAVMF/AAVMF_VARS.fd",
-      True: "/usr/share/AAVMF/AAVMF_VARS.ms.fd"
-    }
+    "fw_code": "/usr/share/AAVMF/AAVMF_CODE.ms.fd",
+    "fw_vars_template": "/usr/share/AAVMF/AAVMF_VARS.ms.fd"
   }
 }
 
@@ -85,29 +79,28 @@ def create_cloud_init_seed(dest_path):
   assert result.returncode == 0
 
 class VirtualMachine:
-  def __init__(self, release, arch, firmware, secboot):
-    if (arch, firmware) not in vmconfig_uefi:
+  def __init__(self, tempdir, release, arch, firmware):
+    if (arch, firmware) not in vmconfig:
       assert False, f"Unsupported configuration {arch} {firmware}"
 
     ensure_vsock_accessible()
 
-    self._tempdir = tempfile.TemporaryDirectory()
-    self._vmpath = self._tempdir.name
+    self._vmdir = tempdir
 
     self._arch = arch
     self._firmware = firmware
-    self._config = vmconfig_uefi[(arch, firmware)]
+    self._config = vmconfig[(arch, firmware)]
 
     if self._firmware == Firmware.UEFI:
-      self._uefi_vars_path = os.path.join(self._vmpath, "UEFI_VARS.fd")
-      shutil.copy(self._config["fw_vars_template"][secboot], self._uefi_vars_path)
+      self._uefi_vars_path = os.path.join(self._vmdir, "UEFI_VARS.fd")
+      shutil.copy(self._config["fw_vars_template"], self._uefi_vars_path)
       # Disable 5 second boot timeout
       self.write_efivar(EFI_GLOBAL_VARIABLE_GUID, "Timeout", b"\x00\x00")
 
-    self._disk_image_path = os.path.join(self._vmpath, "disk.img")
+    self._disk_image_path = os.path.join(self._vmdir, "disk.img")
     download_image(release, arch, self._disk_image_path)
 
-    self._cloud_init_seed_path = os.path.join(self._vmpath, "cloud-init.seed")
+    self._cloud_init_seed_path = os.path.join(self._vmdir, "cloud-init.seed")
     create_cloud_init_seed(self._cloud_init_seed_path)
 
     self._host_vsock = socket.socket(socket.AF_VSOCK, socket.SOCK_STREAM)
@@ -115,11 +108,11 @@ class VirtualMachine:
     self._host_vsock.listen(10)
     self._host_vsock.settimeout(vm_waittimeout)
 
-    self._monitor_socket = os.path.join(self._vmpath, "monitor")
-    self._serial_socket = os.path.join(self._vmpath, "serial")
+    self._monitor_socket = os.path.join(self._vmdir, "monitor")
+    self._serial_socket = os.path.join(self._vmdir, "serial")
 
     if DEBUG:
-      print(f"Created VM directory {self._vmpath}")
+      print(f"Created VM directory {self._vmdir}")
       print(f"Using QEMU {self._config['cmd']}")
       print(f"Using QEMU machine type {self._config['machine']}")
       if self._firmware == Firmware.UEFI:
@@ -317,7 +310,7 @@ class VirtualMachine:
       def __exit__(self, type, value, traceback):
         self._vm.copy_files([self.local_path], self._remote_path)
 
-    return RemoteFileContext(self, remote_path, self._vmpath)
+    return RemoteFileContext(self, remote_path, self._vmdir)
 
   def disablesb(self):
     self.write_efivar(SECURE_BOOT_ENABLE_GUID, "SecureBootEnable", b"\x00", append=False)

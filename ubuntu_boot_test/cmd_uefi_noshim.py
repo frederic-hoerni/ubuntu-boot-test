@@ -63,9 +63,9 @@ def execute(args):
 
   # Package paths to install
   package_paths = prepare_packages(TEMPDIR.name, PACKAGE_SETS[args.arch], args.packages)
-
   # Create virtual machine
-  vm = VirtualMachine(args.release, args.arch, Firmware.UEFI, secboot=False)
+  vm = VirtualMachine(TEMPDIR.name, args.release, args.arch, Firmware.UEFI)
+  vm.disablesb()
 
   def purgesigned():
     # Purge signed packages if in unsigned mode

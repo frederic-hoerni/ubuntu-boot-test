@@ -77,7 +77,7 @@ def execute(args):
   package_paths = prepare_packages(TEMPDIR.name, PACKAGE_SETS[args.arch], args.packages)
 
   # Create virtual machine
-  vm = VirtualMachine(args.release, args.arch, Firmware.UEFI, secboot=True)
+  vm = VirtualMachine(TEMPDIR.name, args.release, args.arch, Firmware.UEFI)
 
   def gen_sb_key(guid, name):
     pem_priv, pem_cert, esl_cert = gen_efi_signkey()

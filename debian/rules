@@ -6,8 +6,3 @@ include /usr/share/dpkg/pkg-info.mk
 
 %:
 	dh $@ --with python3 --buildsystem=pybuild
-
-override_dh_auto_install:
-	mkdir -p debian/ubuntu-boot-test/usr/share/man/man1/
-	mv debian/ubuntu_boot_test_run.1 debian/ubuntu-boot-test/usr/share/man/man1/
-	dh_auto_install

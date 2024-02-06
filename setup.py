@@ -10,9 +10,7 @@ setup(
         "requests",
     ],
     include_package_data=True,
-    packages=find_packages(
-        include=["ubuntu_boot_test"],
-    ),
+    packages=find_packages(include=["ubuntu_boot_test", "ubuntu_boot_test.*"]),
     scripts=(
         "ubuntu_boot_test_run",
     ),

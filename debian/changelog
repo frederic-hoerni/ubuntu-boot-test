@@ -1,4 +1,4 @@
-ubuntu-boot-test (1~ppa6) noble; urgency=medium
+ubuntu-boot-test (1) noble; urgency=medium
 
   * Initial upload. (LP: #2044086)
 

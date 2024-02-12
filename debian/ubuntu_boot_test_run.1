@@ -1,0 +1,22 @@
+.TH UBUNTU_BOOT_TEST_RUN 1
+.SH NAME
+ubuntu_boot_test_run \- run automated bootloader tests
+.SH SYNOPSIS
+.B ubuntu_boot_test_run
+[\-h] {pcbios,uefi_noshim,uefi_shim} [\-h] \fB\-r\fR RELEASE \fB\-a\fR ARCH [packages ...]
+.SH OPTIONS
+.TP
+{pcbios,uefi_noshim,uefi_shim}
+Test to run
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+show help message and exit
+.TP
+\fB\-r\fR RELEASE, \fB\-\-release\fR RELEASE
+Guest Ubuntu release
+.TP
+\fB\-a\fR ARCH, \fB\-\-arch\fR ARCH
+Guest architecture
+.TP
+packages
+List of packages to install (does apt\-get download if empty)

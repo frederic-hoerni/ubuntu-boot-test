@@ -81,6 +81,18 @@ def download_image(release, arch, dest_path):
     for chunk in resp.iter_content(chunk_size=4096):
       f.write(chunk)
 
+def download_file(url, dest_path):
+  resp = requests.get(url)
+  assert resp.status_code == 200, "Failed to download file"
+  with open(dest_path, "wb") as f:
+    for chunk in resp.iter_content(chunk_size=4096):
+      f.write(chunk)
+
+def fetch_file(url):
+  resp = requests.get(url)
+  assert resp.status_code == 200, "Failed to fetch file"
+  return resp.content
+
 def validate_packages(expected_package_set, package_paths):
   actual_package_set = set()
 
@@ -339,3 +351,11 @@ class SbatLevel:
 
   def set_level_for(self, cnam: str, cgen: int):
     self.entries[cnam] = cgen
+
+def runcmd(args, assert_ok=True, cwd=None):
+  if cwd:
+    result = subprocess.run(args, capture_output=not DEBUG, cwd=cwd)
+  else:
+    result = subprocess.run(args, capture_output=not DEBUG)
+  if assert_ok:
+    assert result.returncode == 0, f"Failed to run {args}"

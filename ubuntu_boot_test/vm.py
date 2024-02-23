@@ -37,7 +37,7 @@ vmconfig = {
     "cmd": "qemu-system-x86_64",
     "machine": "q35",
     "cpu": "qemu64",
-    "ram": "512",
+    "ram": "8192",
     "fw_code": "/usr/share/OVMF/OVMF_CODE_4M.ms.fd",
     "fw_vars_template": "/usr/share/OVMF/OVMF_VARS_4M.ms.fd"
   },
@@ -128,7 +128,7 @@ class VirtualMachine:
     # Find existing variable
     varstore = EDK2UEFIVarStore(vars_data)
     for var in varstore.vars:
-      print(f"{binascii.hexlify(var.guid)}:{var.name} = {binascii.hexlify(var.data)}")
+      print(f"{binascii.hexlify(var.guid).decode()}:{var.name} = {binascii.hexlify(var.data).decode()}")
 
   def read_efivar(self, guid, name):
     # Read current variable store
@@ -174,10 +174,10 @@ class VirtualMachine:
       if f.tell() < vars_length:
         f.write(b"\xff" * (vars_length - f.tell()))
 
-  def start(self, ephemeral_snapshot=False, wait=True):
+  def start(self, ephemeral_snapshot=False, wait=True, tapname=None):
     serialcon = f"unix:{self._serial_socket},server,nowait"
     if DEBUG:
-      serialcon += ",logfile=/dev/tty"
+      serialcon += ",logfile=/dev/stdout"
 
     if kvm_supported(self._arch):
       accel = "kvm"
@@ -194,8 +194,16 @@ class VirtualMachine:
       "-monitor", f"unix:{self._monitor_socket},server,nowait",
       "-serial", serialcon,
       "-device", "vhost-vsock-pci,guest-cid=3",
+      # First iface for network access and SSH forwarding to host
       "-netdev", "user,id=net0,hostfwd=tcp::2222-:22",
-      "-device", "virtio-net-pci,romfile=,netdev=net0"
+      "-device", "virtio-net-pci,romfile=,netdev=net0",
+      # Second iface for netbooting
+      "-netdev", "tap,id=net1,script=no,downscript=no" + (f",ifname={tapname}" if tapname else ""),
+      "-device", "virtio-net-pci,mac=00:00:00:00:00:01,romfile=,netdev=net1",
+      # NOTE: this is useful for testing DEBUG builds of OVMF, so leaving
+      #  it here, but commented out
+      # "-debugcon", "file:/dev/stdout",
+      # "-global", "isa-debugcon.iobase=0x402"
     ]
 
     if self._firmware == Firmware.UEFI:

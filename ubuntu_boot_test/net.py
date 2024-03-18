@@ -132,6 +132,8 @@ bind-interfaces
 dhcp-range={host_addr(self._v4subnet, 100).addr_str()},{host_addr(self._v4subnet, 200).addr_str()},12h
 
 # IPv4 TFTP boot
+dhcp-match=set:bios-tftp-x86,option:client-arch,0
+dhcp-boot=tag:bios-tftp-x86,pxelinux.0
 dhcp-match=set:efi-tftp-x86_64,option:client-arch,7
 dhcp-boot=tag:efi-tftp-x86_64,bootx64.efi
 dhcp-match=set:efi-tftp-arm64,option:client-arch,11

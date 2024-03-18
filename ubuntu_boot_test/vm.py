@@ -199,7 +199,8 @@ class VirtualMachine:
       "-device", "virtio-net-pci,romfile=,netdev=net0",
       # Second iface for netbooting
       "-netdev", "tap,id=net1,script=no,downscript=no" + (f",ifname={tapname}" if tapname else ""),
-      "-device", "virtio-net-pci,mac=00:00:00:00:00:01,romfile=,netdev=net1",
+      "-device", "virtio-net-pci,mac=00:00:00:00:00:01,netdev=net1" + \
+        (",bootindex=0" if tapname and self._firmware == Firmware.PCBIOS else ",romfile="),
       # NOTE: this is useful for testing DEBUG builds of OVMF, so leaving
       #  it here, but commented out
       # "-debugcon", "file:/dev/stdout",

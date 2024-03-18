@@ -11,7 +11,7 @@ Build-Depends: debhelper-compat (= 13),
                python3-setuptools
 
 Package: ubuntu-boot-test
-Architecture: any
+Architecture: amd64 arm64
 Depends: binutils,
          dnsmasq,
          genisoimage,

@@ -79,7 +79,7 @@ def create_cloud_init_seed(dest_path):
   assert result.returncode == 0
 
 class VirtualMachine:
-  def __init__(self, tempdir, release, arch, firmware):
+  def __init__(self, tempdir, image_url, arch, firmware):
     if (arch, firmware) not in vmconfig:
       assert False, f"Unsupported configuration {arch} {firmware}"
 
@@ -98,7 +98,7 @@ class VirtualMachine:
       self.write_efivar(EFI_GLOBAL_VARIABLE_GUID, "Timeout", b"\x00\x00")
 
     self._disk_image_path = os.path.join(self._vmdir, "disk.img")
-    download_image(release, arch, self._disk_image_path)
+    download_file(image_url, self._disk_image_path)
 
     self._cloud_init_seed_path = os.path.join(self._vmdir, "cloud-init.seed")
     create_cloud_init_seed(self._cloud_init_seed_path)
@@ -120,6 +120,9 @@ class VirtualMachine:
         print(f"Created variable firmware volume {self._uefi_vars_path}")
       print(f"Created disk image {self._disk_image_path}")
       print(f"Created cloud-init seed {self._cloud_init_seed_path}")
+
+  def replace_image(self, image_url):
+    download_file(image_url, self._disk_image_path)
 
   def dump_efivars(self):
     # Read current variable store

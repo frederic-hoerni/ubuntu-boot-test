@@ -1,11 +1,15 @@
 #cloud-config
+# NOTE: this is midly ugly because we would like it to work in Ubuntu and openSUSE images
 runcmd:
+  - pam-config --add --nullok
   - passwd -d root
+  - rm -f /etc/ssh/sshd_config.d/60-cloudimg-settings.conf
+  - sh -c "if [ ! -f /etc/ssh/sshd_config ]; then cp /usr/etc/ssh/sshd_config /etc/ssh/sshd_config; fi"
   - sed -i -e '/^#\?PasswordAuthentication/s/^.*$/PasswordAuthentication yes/' /etc/ssh/sshd_config
   - sed -i -e '/^#\?PermitEmptyPasswords/s/^.*$/PermitEmptyPasswords yes/' /etc/ssh/sshd_config
   - sed -i -e '/^#\?PermitRootLogin/s/^.*$/PermitRootLogin yes/' /etc/ssh/sshd_config
-  - rm -f /etc/ssh/sshd_config.d/60-cloudimg-settings.conf
   - systemctl restart ssh.service
+  - systemctl restart sshd.service
   - mount LABEL=cidata /mnt
   - install /mnt/notify.service /etc/systemd/system
   - install /mnt/notify.py /usr/local/bin

@@ -43,7 +43,7 @@ def execute(args):
   # Package paths to install
   package_paths = prepare_packages(TEMPDIR.name, PACKAGE_SET, args.packages)
   # Create virtual machine
-  vm = VirtualMachine(TEMPDIR.name, args.release, args.arch, Firmware.PCBIOS)
+  vm = VirtualMachine(TEMPDIR.name, ubuntu_cloud_url(args.release, args.arch), args.arch, Firmware.PCBIOS)
 
   def installnew():
     # Copy packages to VM

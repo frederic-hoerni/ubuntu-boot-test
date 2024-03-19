@@ -2,6 +2,7 @@
 Description=ubuntu-boot-test notify.py
 After=network-online.target
 After=ssh.service
+After=sshd.service
 
 [Service]
 ExecStart=python3 /usr/local/bin/notify.py

@@ -66,20 +66,23 @@ def kvm_supported(guest_arch):
     return True
   return False
 
-def download_image(release, arch, dest_path):
+def ubuntu_cloud_url(release, arch):
   arch = { Arch.AMD64: "amd64",
            Arch.ARM64: "arm64" }[arch]
 
   if LOCAL_IMG_SERVER:
-    src_url = f"http://localhost/cloudimg/{release}-server-cloudimg-{arch}.img"
+    return f"http://localhost/cloudimg/{release}-server-cloudimg-{arch}.img"
   else:
-    src_url = f"http://cloud-images.ubuntu.com/{release}/current/{release}-server-cloudimg-{arch}.img"
+    return f"http://cloud-images.ubuntu.com/{release}/current/{release}-server-cloudimg-{arch}.img"
 
-  with open(dest_path, "wb") as f:
-    resp = requests.get(src_url)
-    assert resp.status_code == 200, "Failed to download image"
-    for chunk in resp.iter_content(chunk_size=4096):
-      f.write(chunk)
+def opensuse_cloud_url(arch):
+  # NOTE: openSUSE Tumebleweed seems to not provide ARM64 cloud images,
+  # so we do the cross-distro test on AMD64 only for now
+  arch = { Arch.AMD64: "x86_64" }[arch]
+  if LOCAL_IMG_SERVER:
+    return f"http://localhost/cloudimg/openSUSE-Tumbleweed-Minimal-VM.{arch}-Cloud.qcow2"
+  else:
+    return f"https://download.opensuse.org/tumbleweed/appliances/openSUSE-Tumbleweed-Minimal-VM.{arch}-Cloud.qcow2"
 
 def download_file(url, dest_path):
   resp = requests.get(url)

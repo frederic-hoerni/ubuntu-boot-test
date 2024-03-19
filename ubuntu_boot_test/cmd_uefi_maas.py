@@ -100,12 +100,22 @@ def execute(args):
   os.mkdir(os.path.join(netbootdir, "grub"))
 
   # Write "grub.cfg"
+  # Ubuntu loader lives at /EFI/ubuntu/shimx64.efi
+  # openSUSE loader is (only) at /EFI/ubuntu/shimx64.efi
+  # (We cannot boot it with chainloader directly because signature verification
+  #  is only done via shim in our grub when using chainloader)
   NETBOOT_GRUBCFG = """\
 BOOTLOADER=/efi/ubuntu/shimx64.efi
 search --set=root --file $BOOTLOADER
 if [ $? -eq 0 ]; then
   chainloader $BOOTLOADER
   boot
+fi
+BOOTLOADER=/efi/boot/bootx64.efi
+search --set=root --file $BOOTLOADER
+if [ $? -eq 0 ]; then
+  rmmod peimage
+  exit
 fi
 """
   with open(os.path.join(netbootdir, "grub", "grub.cfg"), "w") as f:
@@ -119,7 +129,7 @@ fi
   package_paths = prepare_packages(TEMPDIR.name, PACKAGE_SETS[args.arch], args.packages)
 
   # Create virtual machine
-  vm = VirtualMachine(TEMPDIR.name, args.release, args.arch, Firmware.UEFI)
+  vm = VirtualMachine(TEMPDIR.name, ubuntu_cloud_url(args.release, args.arch), args.arch, Firmware.UEFI)
 
   def gen_sb_key(guid, name):
     pem_priv, pem_cert, esl_cert = gen_efi_signkey()
@@ -217,27 +227,60 @@ fi
     # Shutdown
     vm.shutdown()
 
+  def provision_opensuse():
+    vm.replace_image(opensuse_cloud_url(args.arch))
+    vm.start()
+    vm.shutdown()
+
   TASKS = [
-    (vm.start,                      "Boot and provision image"),
-    (vm.shutdown,                   "Shut down virtual machine"),
+    (lambda: True,
+      vm.start,                      "Boot and provision image"),
+    (lambda: True,
+      vm.shutdown,                   "Shut down virtual machine"),
 
     # Tested -> Distro
-    (lambda: netboot("PXEv4"),      "PXEv4: Tested->Distro chainload"),
-    (lambda: netboot("PXEv6"),      "PXEv6: Tested->Distro chainload"),
-    (lambda: netboot("HTTPv4"),     "HTTPv4: Tested->Distro chainload"),
+    (lambda: True,
+      lambda: netboot("PXEv4"),      "PXEv4: Tested->Distro chainload"),
+    (lambda: True,
+      lambda: netboot("PXEv6"),      "PXEv6: Tested->Distro chainload"),
+    (lambda: True,
+      lambda: netboot("HTTPv4"),     "HTTPv4: Tested->Distro chainload"),
     # IPv6 HTTP boot currently only works when manually selected from the boot
     # menu, but not via "BootOrder". This seems like an edk2 bug.
-    # (lambda: netboot("HTTPv6"),     "HTTPv6: Tested->Distro chainload"),
+    # (lambda: True,
+    #   lambda: netboot("HTTPv6"),     "HTTPv6: Tested->Distro chainload"),
 
     # MAAS -> Tested chainload
-    (deploymaas,                    "Deploy MAAS bootloaders to server"),
-    (installnew,                    "Deploy tested bootloaders to image"),
-    (lambda: netboot("PXEv4"),      "PXEv4: MAAS->Tested chainload"),
-    (lambda: netboot("PXEv6"),      "PXEv6: MAAS->Tested chainload"),
-    (lambda: netboot("HTTPv4"),     "HTTPv4: MAAS->Tested chainload"),
-    # (lambda: netboot("HTTPv6"),   "HTTPv6: Tested->Distro chainload"),
+    (lambda: True,
+      deploymaas,                    "Deploy MAAS bootloaders to server"),
+    (lambda: True,
+      installnew,                    "Deploy tested bootloaders to image"),
+    (lambda: True,
+      lambda: netboot("PXEv4"),      "PXEv4: MAAS->Tested chainload"),
+    (lambda: True,
+      lambda: netboot("PXEv6"),      "PXEv6: MAAS->Tested chainload"),
+    (lambda: True,
+      lambda: netboot("HTTPv4"),     "HTTPv4: MAAS->Tested chainload"),
+    # (lambda: True,
+    #   lambda: netboot("HTTPv6"),   "HTTPv6: MAAS->Tested chainload"),
+
+    # MAAS -> openSUSE chainload
+    # FIXME: stop disabling Secure Boot after openSUSE rolls out a new shim
+    (lambda: args.arch == Arch.AMD64,
+      vm.disablesb,                  "Disable Secure Boot"),
+    (lambda: args.arch == Arch.AMD64,
+      provision_opensuse,            "Provision openSUSE image"),
+    (lambda: args.arch == Arch.AMD64,
+      lambda: netboot("PXEv4"),      "PXEv4: MAAS->openSUSE chainload"),
+    (lambda: args.arch == Arch.AMD64,
+      lambda: netboot("PXEv6"),      "PXEv6: MAAS->openSUSE chainload"),
+    (lambda: args.arch == Arch.AMD64,
+      lambda: netboot("HTTPv4"),     "HTTPv4: MAAS->openSUSE chainload"),
+    # (lambda: args.arch == Arch.AMD64,
+    #   lambda: netboot("HTTPv6"),     "HTTPv6: MAAS->openSUSE chainload"),
   ]
 
-  for do_task, msg in TASKS:
-    do_task()
-    print(f"{msg} OK")
+  for predicate, do_task, msg in TASKS:
+    if predicate():
+      do_task()
+      print(f"{msg} OK")

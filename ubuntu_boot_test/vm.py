@@ -290,6 +290,16 @@ class VirtualMachine:
       serp = fdpexpect.fdspawn(serfd, timeout=vm_waittimeout)
       serp.expect(re.escape(data))
 
+  def expectserial(self, handler):
+    # Wait for serial to come up
+    while not os.access(self._serial_socket, os.F_OK):
+      pass
+    # Launch expect session
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as serfd:
+      serfd.connect(self._serial_socket)
+      serp = fdpexpect.fdspawn(serfd, timeout=vm_waittimeout)
+      handler(serp)
+
   def waitshutdown(self):
     self._vm_process.wait()
 

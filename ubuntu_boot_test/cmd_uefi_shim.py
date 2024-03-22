@@ -223,33 +223,134 @@ def execute(args):
     revoke_comp_sbat("grub", grub_sbat.get_level_for("grub") + 1,
       b"Verification failed: (0x1A) Security Violation")
 
+  def mok_disable_validation():
+    # Boot as an ephemeral snapshot
+    vm.start(ephemeral_snapshot=True)
+    # Remove GRUB signature
+    with vm.remote_file(GRUB_ESP_PATH) as rf:
+      cleansigs(rf.local_path)
+    # Run mokutil --disable-validation
+    vm.run_cmd(["sh", "-c", "\"printf '11111111\\n11111111\\n' | mokutil --disable-validation\""])
+    vm.run_cmd(["sh", "-c", "\"mokutil --timeout -1\""])
+    # Reboot and navigate MokManager
+    vm.reboot(wait=False)
+    def expecthandler(serp):
+      # 1. Wait for MokManager
+      # 2. Move down to "Change Secure Boot state"
+      # 3. Press enter
+      serp.expect(b"Perform MOK management")
+      serp.send(b"\x1b[B\r\n")
+      # Wait for password prompt asking for 3 random chars
+      for i in range(3):
+        serp.expect(b"Enter password character")
+        serp.send(b"1\r\n")
+      # Disable Secure Boot screen
+      serp.expect(b"Disable Secure Boot")
+      serp.send(b"\x1b[B\r\n")
+      # Then trigger reboot
+      serp.expect(b"Reboot")
+      serp.send(b"\r\n")
+      # MokManager can hang if you dont read the entire last screen
+      serp.read(0x4000)
+    vm.expectserial(expecthandler)
+    # Wait for successful boot
+    vm.waitboot()
+    vm.shutdown()
+
+  def mok_import():
+    # Boot as an ephemeral snapshot
+    vm.start(ephemeral_snapshot=True)
+    # Generate key and re-sign GRUB
+    pem_priv, pem_cert, esl_cert = gen_efi_signkey()
+    with open(os.path.join(TEMPDIR.name, f"MokImport.key"), "wb") as f:
+      f.write(pem_priv)
+    with open(os.path.join(TEMPDIR.name, f"MokImport.pem"), "wb") as f:
+      f.write(pem_cert)
+    with open(os.path.join(TEMPDIR.name, f"MokImport.der"), "wb") as f:
+      # FIXME: maybe 'gen_efi_signkey()' should return a DER directly
+      f.write(esl_cert[44:])
+    with vm.remote_file(GRUB_ESP_PATH) as rf:
+      cleansigs(rf.local_path)
+      sbsign_file("MokImport", rf.local_path)
+    # Copy key to machine and run mokutil --disable-validation
+    vm.copy_files([os.path.join(TEMPDIR.name, f"MokImport.der")], "/tmp/")
+    vm.run_cmd(["sh", "-c", "\"printf '11111111\\n11111111\\n' | mokutil --import /tmp/MokImport.der\""])
+    vm.run_cmd(["sh", "-c", "\"mokutil --timeout 111\""])
+    # Reboot and navigate MokManager
+    vm.reboot(wait=False)
+    def expecthandler(serp):
+      # Wait for timeout prompt and press space
+      serp.expect(b"Booting in 111 seconds")
+      serp.send(b" ")
+      # Select "Enroll MOK" from menu
+      serp.expect(b"Continue boot")
+      serp.send(b"\x1b[B\r\n")
+      # [Enroll MOK] screen
+      serp.expect(b"[Enroll MOK]")
+      serp.send(b"\x1b[B\r\n")
+      # "Enroll the key(s)?" screen
+      serp.expect(b"Enroll the key(s)?")
+      serp.send(b"\x1b[B\r\n")
+      # "Password:" prompt
+      serp.expect(b"Password:")
+      serp.send(b"11111111\r\n")
+      # Trigger reboot
+      serp.expect(b"Reboot")
+      serp.send(b"\r\n")
+      # MokManager can hang if you dont read the entire last screen
+      serp.read(0x4000)
+    vm.expectserial(expecthandler)
+    # Wait for successful boot
+    vm.waitboot()
+    vm.shutdown()
+
+  def mok_sbat_policy():
+    # Boot as an ephemeral snapshot
+    vm.start(ephemeral_snapshot=True)
+    # Get current revocations
+    automatic_revocations = vm.run_cmd(["cat", "/sys/firmware/efi/efivars/SbatLevelRT-605dab50-e046-4300-abb6-3dd810dd8b23"])
+    # Ask mokutil to upgrade to "latest"
+    vm.run_cmd(["mokutil", "--set-sbat-policy", "latest"])
+    vm.reboot()
+    # Assert that they actually updated
+    latest_revocations = vm.run_cmd(["cat", "/sys/firmware/efi/efivars/SbatLevelRT-605dab50-e046-4300-abb6-3dd810dd8b23"])
+    assert automatic_revocations != latest_revocations
+    # Shutdown
+    vm.shutdown()
+
   TASKS = [
     (lambda: True,
-      vm.start,         "Boot and provision image"),
+      vm.start,               "Boot and provision image"),
     (lambda: True,
-      installnew,       "Install new bootloaders"),
+      installnew,             "Install new bootloaders"),
     (lambda: True,
-      vm.shutdown,      "Shut down virtual machine"),
+      vm.shutdown,            "Shut down virtual machine"),
     (lambda: True,
-      vm.start,         "Boot with new bootloaders"),
+      vm.start,               "Boot with new bootloaders"),
     (lambda: True,
-      vm.shutdown,      "Shut down virtual machine"),
+      vm.shutdown,            "Shut down virtual machine"),
     (lambda: True,
-      strip_shim,       "Secure Boot: stripping shim signature"),
+      strip_shim,             "Secure Boot: stripping shim signature"),
     (lambda: True,
-      strip_grub,       "Secure Boot: stripping GRUB signature"),
+      strip_grub,             "Secure Boot: stripping GRUB signature"),
     (lambda: True,
-      strip_kernel,     "Secure Boot: stripping kernel signature"),
+      strip_kernel,           "Secure Boot: stripping kernel signature"),
     (lambda: True,
-      revoke_shim_dbx,  "Secure Boot: revoking shim via dbx"),
+      revoke_shim_dbx,        "Secure Boot: revoking shim via dbx"),
     (lambda: True,
-      revoke_grub_dbx,  "Secure Boot: revoking GRUB via dbx"),
+      revoke_grub_dbx,        "Secure Boot: revoking GRUB via dbx"),
     (lambda: True,
-      revoke_grub_mlx,  "Secure Boot: revoking GRUB via MokListX"),
+      revoke_grub_mlx,        "Secure Boot: revoking GRUB via MokListX"),
     (lambda: True,
-      revoke_shim_sbat, "Secure Boot: revoking shim via SBAT"),
+      revoke_shim_sbat,       "Secure Boot: revoking shim via SBAT"),
     (lambda: True,
-      revoke_grub_sbat, "Secure Boot: revoking GRUB via SBAT"),
+      revoke_grub_sbat,       "Secure Boot: revoking GRUB via SBAT"),
+    (lambda: True,
+      mok_disable_validation, "MOK: Verifying --disable-validation works"),
+    (lambda: True,
+      mok_import,             "MOK: Verifying --import works"),
+    (lambda: True,
+      mok_sbat_policy,        "MOK: Verifying --set-sbat-policy works"),
   ]
 
   for predicate, do_task, msg in TASKS:

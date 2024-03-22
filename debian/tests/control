@@ -22,6 +22,30 @@ Restrictions: allow-stderr, needs-root
 Architecture: arm64
 Features: test-name=uefi-shim-arm64
 
+Test-Command: ubuntu_boot_test_run uefi_maas -r $(lsb_release --codename --short) -a amd64
+Depends: @,
+  grub2-common,
+  grub-common,
+  grub-efi-amd64,
+  grub-efi-amd64-bin,
+  grub-efi-amd64-signed,
+  shim-signed
+Restrictions: allow-stderr, needs-root
+Architecture: amd64
+Features: test-name=uefi-maas-amd64
+
+Test-Command: ubuntu_boot_test_run uefi_maas -r $(lsb_release --codename --short) -a arm64
+Depends: @,
+  grub2-common,
+  grub-common,
+  grub-efi-arm64,
+  grub-efi-arm64-bin,
+  grub-efi-arm64-signed,
+  shim-signed
+Restrictions: allow-stderr, needs-root
+Architecture: arm64
+Features: test-name=uefi-maas-arm64
+
 Test-Command: ubuntu_boot_test_run pcbios -r $(lsb_release --codename --short) -a amd64
 Depends: @,
   grub2-common,

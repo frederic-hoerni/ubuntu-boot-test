@@ -150,22 +150,29 @@ class VirtualMachine:
     with open(self._uefi_vars_path, "rb") as f:
       vars_data = f.read()
       vars_length = f.tell()
+
     # Find existing variable
     varstore = EDK2UEFIVarStore(vars_data)
-    found = False
+    found_var = None
     for var in varstore.vars:
       if var.guid == guid and var.name == name:
-        if append:
-          var.data += data
-        elif data is None:
-          del var
-        else:
-          var.data = data
-        found = True
+        found_var = var
         break
-    # Create new variable
-    if not found:
+
+    if found_var is None:
+      # Create new variable
       varstore.vars.append(UEFIVar(name, data, guid, 3))
+    else:
+      if data is None:
+        # Delete variable
+        varstore.vars.remove(found_var)
+      elif append:
+        # Append data
+        var.data += data
+      else:
+        # Assign data
+        var.data = data
+
     # Dump variable store back out
     with open(self._uefi_vars_path, "wb") as f:
       # FIXME: this is a workaround the incorrect length

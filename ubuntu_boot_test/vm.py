@@ -253,6 +253,18 @@ class VirtualMachine:
     if wait:
       self.waitboot()
 
+  def monitor_cmd(self, cmd):
+    while not os.access(self._monitor_socket, os.F_OK):
+      pass
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as fd:
+      fd.connect(self._monitor_socket)
+      fd.send(cmd)
+
+  def reset(self, wait=True):
+    self.monitor_cmd(b"system_reset\n")
+    if wait:
+      self.waitboot()
+
   def shutdown(self, wait=True):
     self.run_cmd(["poweroff"], assert_ok=False)
     if wait:

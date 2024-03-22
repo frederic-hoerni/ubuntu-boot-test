@@ -79,7 +79,11 @@ def execute(args):
   # Download MAAS stable loader
   def fetch_maas_loaders():
     stream = json.loads(fetch_file(MAAS_STABLE_STREAM_URL))
-    products = stream["products"][f"com.ubuntu.maas.stable:1:grub-efi-signed:uefi:{args.arch}"]
+    product = {
+                Arch.ARM64: "com.ubuntu.maas.stable:1:grub-efi:uefi:arm64",
+                Arch.AMD64: "com.ubuntu.maas.stable:1:grub-efi-signed:uefi:amd64"
+              }
+    products = stream["products"][product[args.arch]]
     versions = max(products["versions"].items(), key=lambda x: x[0])[1]
     download_file(f"{MAAS_IMAGES_URL}/" + versions["items"]["shim-signed"]["path"],
                   os.path.join(TEMPDIR.name, "maas-shim-signed.tar.xz"))
@@ -104,14 +108,14 @@ def execute(args):
   # openSUSE loader is (only) at /EFI/ubuntu/shimx64.efi
   # (We cannot boot it with chainloader directly because signature verification
   #  is only done via shim in our grub when using chainloader)
-  NETBOOT_GRUBCFG = """\
-BOOTLOADER=/efi/ubuntu/shimx64.efi
+  NETBOOT_GRUBCFG = f"""\
+BOOTLOADER=/efi/ubuntu/shim{EFI_SUFFIXES[args.arch]}
 search --set=root --file $BOOTLOADER
 if [ $? -eq 0 ]; then
   chainloader $BOOTLOADER
   boot
 fi
-BOOTLOADER=/efi/boot/bootx64.efi
+BOOTLOADER=/efi/boot/boot{EFI_SUFFIXES[args.arch]}
 search --set=root --file $BOOTLOADER
 if [ $? -eq 0 ]; then
   rmmod peimage

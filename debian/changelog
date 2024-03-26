@@ -1,8 +1,17 @@
-ubuntu-boot-test (2) UNRELEASED; urgency=medium
+ubuntu-boot-test (2) noble; urgency=medium
 
-  * Placeholder for second release
+  * Add TFTP and HTTP netboot tests
+  * Add mokutil/MokManager tests
+  * Refactoring and bug fixes
 
- -- Mate Kukri <mate.kukri@canonical.com>  Mon, 19 Feb 2024 08:28:17 +0000
+ -- Mate Kukri <mate.kukri@canonical.com>  Tue, 26 Mar 2024 08:49:04 +0000
+
+ubuntu-boot-test (1.1) noble; urgency=medium
+
+  * ubt/vm.py: Provide correct Secure Boot firmware volume for AAVMF
+  * d/control: Only build on amd64 and arm64
+
+ -- Mate Kukri <mate.kukri@canonical.com>  Mon, 18 Mar 2024 10:12:01 +0000
 
 ubuntu-boot-test (1) noble; urgency=medium
 

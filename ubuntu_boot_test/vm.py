@@ -37,7 +37,7 @@ vmconfig = {
     "cmd": "qemu-system-x86_64",
     "machine": "q35",
     "cpu": "qemu64",
-    "ram": "8192",
+    "ram": "512",
     "fw_code": "/usr/share/OVMF/OVMF_CODE_4M.ms.fd",
     "fw_vars_template": "/usr/share/OVMF/OVMF_VARS_4M.ms.fd"
   },

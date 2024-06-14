@@ -67,6 +67,8 @@ def execute(args):
 
   # Paths of packaged loaders
   SHIM_SIGNED_PATH = f"usr/lib/shim/shim{EFI_SUFFIXES[args.arch]}.signed.latest"
+  MM_SIGNED_PATH = f"usr/lib/shim/mm{EFI_SUFFIXES[args.arch]}"
+  FB_SIGNED_PATH = f"usr/lib/shim/fb{EFI_SUFFIXES[args.arch]}"
   GRUB_SIGNED_PATH = f"usr/lib/grub/{EFI_TARGETS[args.arch]}/grub{EFI_SUFFIXES[args.arch]}.signed"
 
   # Paths of installed loaders
@@ -80,6 +82,8 @@ def execute(args):
   vm = VirtualMachine(TEMPDIR.name, ubuntu_cloud_url(args.release, args.arch), args.arch, Firmware.UEFI)
 
   def gen_sb_key(guid, name):
+    if os.path.isfile(f"{name}.key"):
+        return
     pem_priv, pem_cert, esl_cert = gen_efi_signkey()
     with open(os.path.join(TEMPDIR.name, f"{name}.key"), "wb") as f:
       f.write(pem_priv)
@@ -111,6 +115,13 @@ def execute(args):
     # Save information needed for revocation
     shim_hash_esl = pe_to_efihash(binpath)
     shim_sbat = decode_image_sbat(TEMPDIR.name, binpath)
+    # Check/sign mm and fb
+    for file in (MM_SIGNED_PATH, ):
+      binpath = os.path.join(ctx.dir_path, file)
+      if not is_canonical_signed(binpath):
+        # Sign shim with ephemeral key
+        gen_sb_key(SHIM_LOCK_GUID, "MokList")
+        sbsign_file("MokList", binpath)
 
   with deb_repack_ctx(TEMPDIR.name, grub_signed_deb_path) as ctx:
     binpath = os.path.join(ctx.dir_path, GRUB_SIGNED_PATH)

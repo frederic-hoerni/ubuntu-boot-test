@@ -2,3 +2,5 @@
 *.egg-info
 __pycache__
 dist
+# Debian build
+debian/files

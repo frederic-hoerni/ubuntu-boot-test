@@ -203,6 +203,7 @@ class VirtualMachine:
       "-nographic",
       "-monitor", f"unix:{self._monitor_socket},server,nowait",
       "-serial", serialcon,
+      "-device", "virtio-rng-pci",
       "-device", "vhost-vsock-pci,guest-cid=3",
       # First iface for network access and SSH forwarding to host
       "-netdev", "user,id=net0,hostfwd=tcp::2222-:22",

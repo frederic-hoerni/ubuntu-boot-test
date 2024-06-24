@@ -62,6 +62,9 @@ def host_kernel_arch():
   assert False, f"Unknown kernel architecture {machine}"
 
 def kvm_supported(guest_arch):
+  # Workaround: /dev/kvm is exposed on ppc64el autopkgtest testbeds, but nested kvm doesnt actually work
+  if guest_arch == Arch.PPC64EL:
+    return False
   # Accelaration can be used when the guest has the same architecture as the
   # host kernel (NOTE: this is a simplification but it's good enough here)
   # We also need to ensure that the KVM device node is exposed and accessible

@@ -34,6 +34,7 @@ class Arch(Enum):
   """
   AMD64   = "amd64"
   ARM64   = "arm64"
+  PPC64EL = "ppc64el"
 
   def __str__(self):
     return self.value
@@ -41,8 +42,9 @@ class Arch(Enum):
 class Firmware(Enum):
   """Firmware type
   """
-  UEFI    = "uefi"
-  PCBIOS  = "pcbios"
+  UEFI     = "uefi"
+  PCBIOS   = "pcbios"
+  IEEE1275 = "ieee1275"
 
   def __str__(self):
     return self.value
@@ -55,6 +57,8 @@ def host_kernel_arch():
     return Arch.AMD64
   if machine == "aarch64":
     return Arch.ARM64
+  if machine == "ppc64le": # NOTE: Linux uses le instead of el
+    return Arch.PPC64EL
   assert False, f"Unknown kernel architecture {machine}"
 
 def kvm_supported(guest_arch):
@@ -68,7 +72,8 @@ def kvm_supported(guest_arch):
 
 def ubuntu_cloud_url(release, arch):
   arch = { Arch.AMD64: "amd64",
-           Arch.ARM64: "arm64" }[arch]
+           Arch.ARM64: "arm64",
+           Arch.PPC64EL: "ppc64el" }[arch]
 
   if LOCAL_IMG_SERVER:
     return f"http://localhost/cloudimg/{release}-server-cloudimg-{arch}.img"

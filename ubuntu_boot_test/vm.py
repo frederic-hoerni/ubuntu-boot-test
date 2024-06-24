@@ -54,6 +54,12 @@ vmconfig = {
     "ram": "512",
     "fw_code": "/usr/share/AAVMF/AAVMF_CODE.ms.fd",
     "fw_vars_template": "/usr/share/AAVMF/AAVMF_VARS.ms.fd"
+  },
+  (Arch.PPC64EL, Firmware.IEEE1275): {
+    "cmd": "qemu-system-ppc64el",
+    "machine": "pseries",
+    "cpu": "power10",
+    "ram": "512",
   }
 }
 

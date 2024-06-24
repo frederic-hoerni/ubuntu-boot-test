@@ -55,3 +55,13 @@ Depends: @,
 Restrictions: allow-stderr, needs-root
 Architecture: amd64
 Features: test-name=pcbios-amd64
+
+Test-Command: ubuntu_boot_test_run ieee1275 -r $(lsb_release --codename --short) -a ppc64el
+Depends: @,
+  grub2-common,
+  grub-common,
+  grub-ieee1275,
+  grub-ieee1275-bin
+Restrictions: allow-stderr, needs-root
+Architecture: ppc64el
+Features: test-name=ieee1275-ppc64el

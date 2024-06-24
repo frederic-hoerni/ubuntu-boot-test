@@ -11,7 +11,7 @@ Build-Depends: debhelper-compat (= 13),
                python3-setuptools
 
 Package: ubuntu-boot-test
-Architecture: amd64 arm64
+Architecture: amd64 arm64 ppc64el
 Depends: binutils,
          dnsmasq,
          genisoimage,
@@ -30,6 +30,7 @@ Depends: binutils,
          pesign,
          qemu-system-arm,
          qemu-system-x86,
+	 qemu-system-ppc,
          ${python3:Depends},
          ${misc:Depends}
 Description: autopkgtests for the Ubuntu bootloader stack

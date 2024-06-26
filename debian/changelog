@@ -1,3 +1,15 @@
+ubuntu-boot-test (3) oracular; urgency=medium
+
+  * Add debian/files to .gitignore
+  * ubt/cmd_uefi_shim.py: Also sign mm/fb in ephemeral
+  * ubt/vm.py: Add virtio-rng device
+  * Add basic POWER OpenFirmware boot test
+  * d/control: Mark architecture specific depends as such
+  * ubt/util.py: Disable KVM on POWER as workaround for wrongly exposed /dev/kvm
+  * ubt/vm.py: Add -vga none to virtual machine arguments
+
+ -- Mate Kukri <mate.kukri@canonical.com>  Wed, 26 Jun 2024 13:21:04 +0100
+
 ubuntu-boot-test (2) noble; urgency=medium
 
   * Add TFTP and HTTP netboot tests

@@ -207,6 +207,7 @@ class VirtualMachine:
       "-M", f"{self._config['machine']},accel={accel}",
       "-cpu", cpu,
       "-nographic",
+      "-vga", "none",
       "-monitor", f"unix:{self._monitor_socket},server,nowait",
       "-serial", serialcon,
       "-device", "virtio-rng-pci",

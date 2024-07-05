@@ -25,6 +25,7 @@ import atexit
 import binascii
 import os
 import re
+import select
 import shutil
 import signal
 import socket
@@ -191,10 +192,6 @@ class VirtualMachine:
         f.write(b"\xff" * (vars_length - f.tell()))
 
   def start(self, ephemeral_snapshot=False, wait=True, tapname=None):
-    serialcon = f"unix:{self._serial_socket},server,nowait"
-    if DEBUG:
-      serialcon += ",logfile=/dev/stdout"
-
     if kvm_supported(self._arch):
       accel = "kvm"
       cpu = "host"
@@ -209,7 +206,7 @@ class VirtualMachine:
       "-nographic",
       "-vga", "none",
       "-monitor", f"unix:{self._monitor_socket},server,nowait",
-      "-serial", serialcon,
+      "-serial", f"unix:{self._serial_socket},server,nowait",
       "-device", "virtio-rng-pci",
       "-device", "vhost-vsock-pci,guest-cid=3",
       # First iface for network access and SSH forwarding to host
@@ -284,9 +281,24 @@ class VirtualMachine:
       self.waitshutdown()
 
   def waitboot(self):
-    connfd, _ = self._host_vsock.accept()
-    assert connfd.recv(3) == b"RDY"
-    connfd.close()
+    # Wait for serial to come up
+    while not os.access(self._serial_socket, os.F_OK):
+      pass
+    # Wait for serial data *or* notifier connection
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as serfd:
+      serfd.connect(self._serial_socket)
+      while True:
+        rlist, _, _ = select.select((serfd, self._host_vsock,), (), ())
+        if DEBUG and serfd in rlist:
+          # Dump out boot console filtering escapes
+          s = serfd.recv(4096)
+          sys.stdout.buffer.write(b"".join(bytes((c,)) for c in s if c == ord('\n') or chr(c).isprintable()))
+        if self._host_vsock in rlist:
+          connfd, _ = self._host_vsock.accept()
+          assert connfd.recv(3) == b"RDY"
+          connfd.close()
+          # No need to wait any longer
+          return
 
   def waitserial(self, data):
     # Wait for serial to come up

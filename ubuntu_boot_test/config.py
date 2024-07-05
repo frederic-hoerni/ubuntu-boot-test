@@ -16,8 +16,8 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-# Enable debug mode
-DEBUG = False
+# Enable debug mode (default on)
+DEBUG = True
 
-# Use local webserver for downloading images
+# Use local webserver for downloading images (default off)
 LOCAL_IMG_SERVER = False

@@ -48,6 +48,7 @@ def execute(args):
       "grub-common",
       "grub-efi-amd64",
       "grub-efi-amd64-bin",
+      "grub-efi-amd64-unsigned",
       "grub-efi-amd64-signed",
       "shim-signed"
     )),
@@ -56,6 +57,7 @@ def execute(args):
       "grub-common",
       "grub-efi-arm64",
       "grub-efi-arm64-bin",
+      "grub-efi-arm64-unsigned",
       "grub-efi-arm64-signed",
       "shim-signed"
     )),

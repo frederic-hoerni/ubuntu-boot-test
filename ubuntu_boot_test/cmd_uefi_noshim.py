@@ -41,12 +41,14 @@ def execute(args):
       "grub-common",
       "grub-efi-amd64",
       "grub-efi-amd64-bin"
+      "grub-efi-amd64-unsigned"
     )),
     Arch.ARM64: set((
       "grub2-common",
       "grub-common",
       "grub-efi-arm64",
       "grub-efi-arm64-bin"
+      "grub-efi-arm64-unsigned"
     )),
   }
 

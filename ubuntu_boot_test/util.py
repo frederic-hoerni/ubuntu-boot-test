@@ -93,7 +93,7 @@ def opensuse_cloud_url(arch):
     return f"https://download.opensuse.org/tumbleweed/appliances/openSUSE-Tumbleweed-Minimal-VM.{arch}-Cloud.qcow2"
 
 def download_file(url, dest_path):
-  resp = requests.get(url)
+  resp = requests.get(url, stream=True)
   assert resp.status_code == 200, "Failed to download file"
   with open(dest_path, "wb") as f:
     for chunk in resp.iter_content(chunk_size=4096):

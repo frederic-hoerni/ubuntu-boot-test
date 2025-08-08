@@ -65,3 +65,23 @@ Depends: @,
 Restrictions: allow-stderr, needs-root
 Architecture: ppc64el
 Features: test-name=ieee1275-ppc64el
+
+Test-Command: ubuntu_boot_test_run ubustub -r $(lsb_release --codename --short) -a amd64
+Depends: @,
+  ubustub,
+  systemd-ukify,
+  python3-pefile,
+  python3-zstandard
+Restrictions: allow-stderr, needs-root
+Architecture: amd64
+Features: test-name=ubustub-amd64
+
+Test-Command: ubuntu_boot_test_run ubustub -r $(lsb_release --codename --short) -a arm64
+Depends: @,
+  ubustub,
+  systemd-ukify,
+  python3-pefile,
+  python3-zstandard
+Restrictions: allow-stderr, needs-root
+Architecture: arm64
+Features: test-name=ubustub-arm64

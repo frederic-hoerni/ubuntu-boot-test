@@ -17,7 +17,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from ubuntu_boot_test import cmd_pcbios, cmd_pcbios_maas, cmd_uefi_maas, cmd_uefi_noshim, cmd_uefi_shim, cmd_ieee1275
+from ubuntu_boot_test import cmd_pcbios, cmd_pcbios_maas, cmd_uefi_maas, cmd_uefi_noshim, cmd_uefi_shim, cmd_ieee1275, cmd_ubustub
 import argparse
 import sys
 
@@ -36,6 +36,7 @@ cmd_uefi_maas.register(subparsers)
 cmd_uefi_noshim.register(subparsers)
 cmd_uefi_shim.register(subparsers)
 cmd_ieee1275.register(subparsers)
+cmd_ubustub.register(subparsers)
 
 # Parse arguments
 args = parser.parse_args()

@@ -1,4 +1,4 @@
-# ubuntu-boot-test: cmd_ubustub.py: ubustub test
+# ubuntu-boot-test: cmd_stubble.py: stubble test
 #
 # Copyright (C) 2025 Canonical, Ltd.
 # Author: Mate Kukri <mate.kukri@canonical.com>
@@ -26,7 +26,7 @@ import subprocess
 import tempfile
 
 def register(subparsers):
-  parser = subparsers.add_parser("ubustub", description="ubustub test")
+  parser = subparsers.add_parser("stubble", description="stubble test")
 
   parser.add_argument("-r", "--release", required=True,
     help="Guest Ubuntu release")
@@ -39,8 +39,8 @@ def execute(args):
   TEMPDIR = tempfile.TemporaryDirectory("")
 
   PACKAGE_SETS = {
-    Arch.AMD64: set(("ubustub", "systemd-ukify", "python3-pefile", "python3-zstandard", )),
-    Arch.ARM64: set(("ubustub", "systemd-ukify", "python3-pefile", "python3-zstandard", )),
+    Arch.AMD64: set(("stubble", "systemd-ukify", "python3-pefile", "python3-zstandard", )),
+    Arch.ARM64: set(("stubble", "systemd-ukify", "python3-pefile", "python3-zstandard", )),
   }
 
   # Package paths to install
@@ -74,10 +74,10 @@ def execute(args):
     vm.run_cmd(["apt", "install", "--yes", "/tmp/*.deb"])
 
   def wrapkernel():
-    # Wrap kernel in ubustub
+    # Wrap kernel in stubble
     vm.run_cmd(["bash", "-c", "\"zcat -f /boot/vmlinuz > /boot/vmlinuz.tmp\""])
     vm.run_cmd([
-      "ukify", "build", "--linux=/boot/vmlinuz.tmp", "--stub=/usr/lib/ubustub/ubustub.efi", "--output=/boot/vmlinuz.efi"
+      "ukify", "build", "--linux=/boot/vmlinuz.tmp", "--stub=/usr/lib/stubble/stubble.efi", "--output=/boot/vmlinuz.efi"
     ])
     # Replace original kernel
     real_kernel_path = vm.run_cmd(["readlink", "-f", "/boot/vmlinuz"]).strip()
@@ -92,7 +92,7 @@ def execute(args):
     # Force shutdown VM
     vm.forceshutdown()
 
-  def signubustub():
+  def signstubble():
     real_kernel_path = vm.run_cmd(["readlink", "-f", "/boot/vmlinuz"]).strip()
     with vm.remote_file(real_kernel_path) as rf:
       sbsign_file("MokList", rf.local_path)
@@ -100,14 +100,14 @@ def execute(args):
   TASKS = [
     (vm.start,      "Boot and provision image"),
     (installnew,    "Install new packages"),
-    (wrapkernel,    "Wrap kernel in ubustub"),
-    (checkunsigned, "Ensure unsinged ubustub does not boot"),
+    (wrapkernel,    "Wrap kernel in stubble"),
+    (checkunsigned, "Ensure unsinged stubble does not boot"),
     (vm.disablesb,  "Disable SecureBoot"),
     (vm.start,      "Boot virtual machine"),
-    (signubustub,   "Sign ubustub image"),
+    (signstubble,   "Sign stubble image"),
     (vm.shutdown,   "Shut down virtual machine"),
     (vm.enablesb,   "Enable SecureBoot"),
-    (vm.start,      "Boot with signed ubustub image"),
+    (vm.start,      "Boot with signed stubble image"),
     (vm.shutdown,   "Shut down virtual machine"),
   ]
 

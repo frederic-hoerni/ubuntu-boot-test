@@ -1,3 +1,9 @@
+ubuntu-boot-test (5) questing; urgency=medium
+
+  * Add ubustub boot test 
+
+ -- Mate Kukri <mate.kukri@canonical.com>  Fri, 08 Aug 2025 10:50:24 +0100
+
 ubuntu-boot-test (4) oracular; urgency=medium
 
   * ubt/vm.py: Use `select()` to filter and echo serial output while waiting for boot

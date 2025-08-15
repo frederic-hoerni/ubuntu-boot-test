@@ -44,9 +44,10 @@ def execute(args):
 
   PACKAGE_SETS = {
     Arch.AMD64: set((
+      # NOTE AMD64 cloud images use hybrid PC+UEFI setup
       "grub2-common",
-      "grub-common",
-      "grub-efi-amd64",
+      "grub-pc",
+      "grub-pc-bin",
       "grub-efi-amd64-bin",
       "grub-efi-amd64-unsigned",
       "grub-efi-amd64-signed",
@@ -54,7 +55,6 @@ def execute(args):
     )),
     Arch.ARM64: set((
       "grub2-common",
-      "grub-common",
       "grub-efi-arm64",
       "grub-efi-arm64-bin",
       "grub-efi-arm64-unsigned",

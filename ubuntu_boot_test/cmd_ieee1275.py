@@ -33,7 +33,6 @@ def register(subparsers):
 def execute(args):
   PACKAGE_SET = set((
     "grub2-common",
-    "grub-common",
     "grub-ieee1275",
     "grub-ieee1275-bin"
   ))

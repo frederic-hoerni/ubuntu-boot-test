@@ -44,7 +44,6 @@ def execute(args):
 
   PACKAGE_SET = set((
     "grub2-common",
-    "grub-common",
     "grub-pc",
     "grub-pc-bin"
   ))

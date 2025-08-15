@@ -38,23 +38,27 @@ def execute(args):
   PACKAGE_SETS = {
     Arch.AMD64: set((
       "grub2-common",
-      "grub-common",
       "grub-efi-amd64",
-      "grub-efi-amd64-bin"
+      "grub-efi-amd64-bin",
       "grub-efi-amd64-unsigned"
     )),
     Arch.ARM64: set((
       "grub2-common",
-      "grub-common",
       "grub-efi-arm64",
-      "grub-efi-arm64-bin"
+      "grub-efi-arm64-bin",
       "grub-efi-arm64-unsigned"
     )),
   }
 
   PURGE_SETS = {
     Arch.AMD64: set((
+      # BIOS GRUB
+      "grub-pc",
+      "grub-pc-bin",
+      "grub-gfxpayload-lists",
+      # Signed GRUB
       "grub-efi-amd64-signed",
+      # Signed shim
       "shim-signed"
     )),
     Arch.ARM64: set((

@@ -1,3 +1,10 @@
+ubuntu-boot-test (6) questing; urgency=medium
+
+  * Rename s/ubustub/stubble
+  * Fixes for GRUB 2.14
+
+ -- Mate Kukri <mate.kukri@canonical.com>  Fri, 15 Aug 2025 13:08:43 +0100
+
 ubuntu-boot-test (5) questing; urgency=medium
 
   * Add ubustub boot test 

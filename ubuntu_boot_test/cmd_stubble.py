@@ -87,7 +87,7 @@ def execute(args):
     # Reboot and wait for error from GRUB
     # To make sure it does not boot before signing
     vm.reboot(wait=False)
-    vm.waitserial(b"error: bad shim signature.")
+    vm.waitserial(b"error: bad shim lock signature.") # FIXME: this will change for loader protocol
 
     # Force shutdown VM
     vm.forceshutdown()

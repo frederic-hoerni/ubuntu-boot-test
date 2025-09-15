@@ -13,6 +13,8 @@ Build-Depends: debhelper-compat (= 13),
 Package: ubuntu-boot-test
 Architecture: amd64 arm64 ppc64el
 Depends: binutils,
+         cloud-guest-utils [amd64],
+         cryptsetup [amd64],
          dnsmasq,
          genisoimage,
          iproute2,
@@ -31,6 +33,9 @@ Depends: binutils,
          qemu-system-arm [amd64 arm64],
          qemu-system-x86 [amd64 arm64],
          qemu-system-ppc [ppc64el],
+         qemu-utils [amd64],
+         swtpm [amd64],
+         tpm2-tools [amd64],
          ${python3:Depends},
          ${misc:Depends}
 Description: autopkgtests for the Ubuntu bootloader stack

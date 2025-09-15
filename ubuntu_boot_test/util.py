@@ -19,11 +19,13 @@
 from enum import Enum
 from OpenSSL import crypto
 from ubuntu_boot_test.config import *
+import atexit
 import binascii
 import gzip
 import os
 import requests
 import shutil
+import signal
 import struct
 import subprocess
 import sys
@@ -91,6 +93,13 @@ def opensuse_cloud_url(arch):
     return f"http://localhost/cloudimg/openSUSE-Tumbleweed-Minimal-VM.{arch}-Cloud.qcow2"
   else:
     return f"https://download.opensuse.org/tumbleweed/appliances/openSUSE-Tumbleweed-Minimal-VM.{arch}-Cloud.qcow2"
+
+def cvm_cloud_url(release, arch):
+  arch = { Arch.AMD64: "amd64" }[arch]
+  if LOCAL_IMG_SERVER:
+    return f"http://localhost/cloudimg/{release}-server-cloudimg-{arch}-azure.fde.vhd.tar.gz"
+  else:
+    return f"http://cloud-images.ubuntu.com/azure/autopkgtest/tpm-fde/{release}/latest/{release}-server-cloudimg-{arch}-azure.fde.vhd.tar.gz"
 
 def download_file(url, dest_path):
   resp = requests.get(url, stream=True)
@@ -370,3 +379,38 @@ def runcmd(args, assert_ok=True, cwd=None):
     result = subprocess.run(args, capture_output=not DEBUG)
   if assert_ok:
     assert result.returncode == 0, f"Failed to run {args}"
+
+class ProcessWrapper:
+  def __init__(self, args):
+    kwargs = {}
+    if not DEBUG:
+      kwargs["stderr"] = subprocess.PIPE
+      kwargs["stdout"] = subprocess.PIPE
+    self._process = subprocess.Popen(args, **kwargs)
+
+    # Register hook to kill process on exit
+    atexit.register(self.kill_process)
+
+  def kill_process(self):
+    os.kill(self._process.pid, signal.SIGINT)
+    self._process.wait()
+
+    # We no longer need this hook now that the process is dead
+    atexit.unregister(self.kill_process)
+
+def github_get_latest_release(project):
+  """
+  This is a somewhat janky way to get the latest release of GitHub repo.
+  The upside is, it requires no API token unlike the REST API way...
+  """
+  url = f"https://github.com/{project}/releases/latest"
+  resp = requests.get(url)
+  assert resp.status_code == 200, f"Failed to GET {url}"
+  if not resp.history:
+    assert False, f"GET of {url} was not redirected"
+  return resp.url.split("/")[-1]
+
+def github_download_release_asset(project, release, binary, dest_path):
+  if release == "latest":
+    release = github_get_latest_release(project)
+  download_file(f"https://github.com/{project}/releases/download/{release}/{binary}", dest_path)

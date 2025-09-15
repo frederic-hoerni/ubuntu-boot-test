@@ -20,7 +20,6 @@ from ubuntu_boot_test.config import *
 from ubuntu_boot_test.util import *
 import atexit
 import os
-import signal
 import socket
 import subprocess
 
@@ -86,19 +85,6 @@ def host_addr(subnet, host_id):
     result[i] |= byte
     i += 1
   return InetAddr(subnet.family, bytes(result), subnet.mask_bits)
-
-class ProcessWrapper:
-  def __init__(self, args):
-    kwargs = {}
-    if not DEBUG:
-      kwargs["stderr"] = subprocess.PIPE
-      kwargs["stdout"] = subprocess.PIPE
-    self._process = subprocess.Popen(args, **kwargs)
-
-    def kill_process():
-      os.kill(self._process.pid, signal.SIGINT)
-      self._process.wait()
-    atexit.register(kill_process)
 
 class VirtualNetwork:
   def __init__(self, tempdir, netbootdir):

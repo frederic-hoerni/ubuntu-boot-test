@@ -105,7 +105,8 @@ class VirtualMachine:
       self.write_efivar(EFI_GLOBAL_VARIABLE_GUID, "Timeout", b"\x00\x00")
 
     self._disk_image_path = os.path.join(self._vmdir, "disk.img")
-    download_file(image_url, self._disk_image_path)
+    if image_url is not None:
+      download_file(image_url, self._disk_image_path)
 
     self._cloud_init_seed_path = os.path.join(self._vmdir, "cloud-init.seed")
     create_cloud_init_seed(self._cloud_init_seed_path)
@@ -191,7 +192,7 @@ class VirtualMachine:
       if f.tell() < vars_length:
         f.write(b"\xff" * (vars_length - f.tell()))
 
-  def start(self, ephemeral_snapshot=False, wait=True, tapname=None):
+  def start(self, ephemeral_snapshot=False, wait=True, tapname=None, tpm=None):
     if kvm_supported(self._arch):
       accel = "kvm"
       cpu = "host"
@@ -221,6 +222,13 @@ class VirtualMachine:
       # "-debugcon", "file:/dev/stdout",
       # "-global", "isa-debugcon.iobase=0x402"
     ]
+
+    if tpm is not None:
+      opts += [
+        "-chardev", f"socket,id=chrtpm,path={tpm.ctrlsock()}",
+        "-tpmdev", "emulator,id=tpm0,chardev=chrtpm",
+        "-device", "tpm-tis,tpmdev=tpm0",
+      ]
 
     if self._firmware == Firmware.UEFI:
       opts += [

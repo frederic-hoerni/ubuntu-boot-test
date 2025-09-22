@@ -1,3 +1,11 @@
+ubuntu-boot-test (7) questing; urgency=medium
+
+  * Implement automated testing for nullboot (Ubuntu on Azure CVM)
+  * Fix stubble test to work with new GRUB
+  * Remove MAAS stream and openSUSE downloads from netboot test (LP: #2125338)
+
+ -- Mate Kukri <mate.kukri@canonical.com>  Mon, 22 Sep 2025 09:59:50 +0100
+
 ubuntu-boot-test (6) questing; urgency=medium
 
   * Rename s/ubustub/stubble

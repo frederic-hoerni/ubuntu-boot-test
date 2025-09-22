@@ -39,9 +39,6 @@ def register(subparsers):
 def execute(args):
   TEMPDIR = tempfile.TemporaryDirectory("")
 
-  MAAS_IMAGES_URL = "http://images.maas.io/ephemeral-v3/stable"
-  MAAS_STABLE_STREAM_URL = f"{MAAS_IMAGES_URL}/streams/v1/com.ubuntu.maas:stable:1:bootloader-download.json"
-
   PACKAGE_SETS = {
     Arch.AMD64: set((
       # NOTE AMD64 cloud images use hybrid PC+UEFI setup
@@ -78,28 +75,6 @@ def execute(args):
   GRUB_SIGNED_PATH = f"usr/lib/grub/{EFI_TARGETS[args.arch]}/grub{EFI_SUFFIXES[args.arch]}.signed"
   GRUBNET_SIGNED_PATH = f"usr/lib/grub/{EFI_TARGETS[args.arch]}/grubnet{EFI_SUFFIXES[args.arch]}.signed"
 
-  # Download MAAS stable loader
-  def fetch_maas_loaders():
-    stream = json.loads(fetch_file(MAAS_STABLE_STREAM_URL))
-    product = {
-                Arch.ARM64: "com.ubuntu.maas.stable:1:grub-efi:uefi:arm64",
-                Arch.AMD64: "com.ubuntu.maas.stable:1:grub-efi-signed:uefi:amd64"
-              }
-    products = stream["products"][product[args.arch]]
-    versions = max(products["versions"].items(), key=lambda x: x[0])[1]
-    download_file(f"{MAAS_IMAGES_URL}/" + versions["items"]["shim-signed"]["path"],
-                  os.path.join(TEMPDIR.name, "maas-shim-signed.tar.xz"))
-    runcmd(["tar", "--transform=s/^boot/maas-shim/", "-xf",
-            os.path.join(TEMPDIR.name, "maas-shim-signed.tar.xz")],
-      cwd=TEMPDIR.name)
-    download_file(f"{MAAS_IMAGES_URL}/" + versions["items"]["grub2-signed"]["path"],
-                  os.path.join(TEMPDIR.name, "maas-grub-signed.tar.xz"))
-    runcmd(["tar", "--transform=s/^grub/maas-grub/", "-xf",
-            os.path.join(TEMPDIR.name, "maas-grub-signed.tar.xz")],
-      cwd=TEMPDIR.name)
-
-  fetch_maas_loaders()
-
   # Netboot directory
   netbootdir = os.path.join(TEMPDIR.name, "netboot")
   os.mkdir(netbootdir)
@@ -107,7 +82,6 @@ def execute(args):
 
   # Write "grub.cfg"
   # Ubuntu loader lives at /EFI/ubuntu/shimx64.efi
-  # openSUSE loader is (only) at /EFI/ubuntu/shimx64.efi
   # (We cannot boot it with chainloader directly because signature verification
   #  is only done via shim in our grub when using chainloader)
   NETBOOT_GRUBCFG = f"""\
@@ -214,14 +188,6 @@ fi
     vm.waitboot()
     vm.shutdown()
 
-  def deploymaas():
-    shutil.copy(
-      os.path.join(TEMPDIR.name, f"maas-shim{EFI_SUFFIXES[args.arch]}"),
-      os.path.join(netbootdir, f"boot{EFI_SUFFIXES[args.arch]}"))
-    shutil.copy(
-      os.path.join(TEMPDIR.name, f"maas-grub{EFI_SUFFIXES[args.arch]}"),
-      os.path.join(netbootdir, f"grub{EFI_SUFFIXES[args.arch]}"))
-
   def installnew():
     # Boot VM
     vm.start(tapname=tap)
@@ -231,11 +197,6 @@ fi
     vm.run_cmd(["grub-install", "/dev/disk/by-id/virtio-0"])
     vm.run_cmd(["update-grub"])
     # Shutdown
-    vm.shutdown()
-
-  def provision_opensuse():
-    vm.replace_image(opensuse_cloud_url(args.arch))
-    vm.start()
     vm.shutdown()
 
   TASKS = [
@@ -256,34 +217,17 @@ fi
     # (lambda: True,
     #   lambda: netboot("HTTPv6"),     "HTTPv6: Tested->Distro chainload"),
 
-    # MAAS -> Tested chainload
-    (lambda: True,
-      deploymaas,                    "Deploy MAAS bootloaders to server"),
+    # Tested -> Tested chainload
     (lambda: True,
       installnew,                    "Deploy tested bootloaders to image"),
     (lambda: True,
-      lambda: netboot("PXEv4"),      "PXEv4: MAAS->Tested chainload"),
+      lambda: netboot("PXEv4"),      "PXEv4: Tested->Tested chainload"),
     (lambda: True,
-      lambda: netboot("PXEv6"),      "PXEv6: MAAS->Tested chainload"),
+      lambda: netboot("PXEv6"),      "PXEv6: Tested->Tested chainload"),
     (lambda: True,
-      lambda: netboot("HTTPv4"),     "HTTPv4: MAAS->Tested chainload"),
+      lambda: netboot("HTTPv4"),     "HTTPv4: Tested->Tested chainload"),
     # (lambda: True,
-    #   lambda: netboot("HTTPv6"),   "HTTPv6: MAAS->Tested chainload"),
-
-    # MAAS -> openSUSE chainload
-    # FIXME: stop disabling Secure Boot after openSUSE rolls out a new shim
-    (lambda: args.arch == Arch.AMD64,
-      vm.disablesb,                  "Disable Secure Boot"),
-    (lambda: args.arch == Arch.AMD64,
-      provision_opensuse,            "Provision openSUSE image"),
-    (lambda: args.arch == Arch.AMD64,
-      lambda: netboot("PXEv4"),      "PXEv4: MAAS->openSUSE chainload"),
-    (lambda: args.arch == Arch.AMD64,
-      lambda: netboot("PXEv6"),      "PXEv6: MAAS->openSUSE chainload"),
-    (lambda: args.arch == Arch.AMD64,
-      lambda: netboot("HTTPv4"),     "HTTPv4: MAAS->openSUSE chainload"),
-    # (lambda: args.arch == Arch.AMD64,
-    #   lambda: netboot("HTTPv6"),     "HTTPv6: MAAS->openSUSE chainload"),
+    #   lambda: netboot("HTTPv6"),   "HTTPv6: Tested->Tested chainload"),
   ]
 
   for predicate, do_task, msg in TASKS:

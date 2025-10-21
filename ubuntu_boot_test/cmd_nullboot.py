@@ -19,6 +19,8 @@ from ubuntu_boot_test.config import *
 from ubuntu_boot_test.util import *
 from ubuntu_boot_test.vm import VirtualMachine
 from ubuntu_boot_test.tpm import TPM
+import base64
+import json
 import os
 import subprocess
 import tempfile
@@ -70,16 +72,35 @@ def execute(args):
   github_download_release_asset("canonical/encrypt-cloud-image", "latest", "encrypt-cloud-image", eci_path)
   runcmd(["chmod", "+x", eci_path])
 
+  # Create virtual machine
+  vm = VirtualMachine(TEMPDIR.name, None, args.arch, Firmware.UEFI)
+  # Create UEFI config for VM
+  uefi_config = {
+    "PK": base64.b64encode(vm.read_efivar(EFI_GLOBAL_VARIABLE_GUID, "PK")).decode(),
+    "KEK": base64.b64encode(vm.read_efivar(EFI_GLOBAL_VARIABLE_GUID, "KEK")).decode(),
+    "db": base64.b64encode(vm.read_efivar(EFI_IMAGE_SECURITY_DATABASE_GUID, "db")).decode(),
+    "dbx": base64.b64encode(vm.read_efivar(EFI_IMAGE_SECURITY_DATABASE_GUID, "dbx")).decode(),
+    "omitsReadyToBootEvent": False,
+  }
+  uefi_config_path = os.path.join(TEMPDIR.name, "uefi.json")
+  with open(uefi_config_path, "w") as f:
+    if DEBUG:
+      print("Using UEFI config", json.dumps(uefi_config))
+    f.write(json.dumps(uefi_config))
+
   # Create virtual TPM
   tpm = TPM(TEMPDIR.name)
   # Generate SRK
   tpm.generate_srk(TEMPDIR.name)
   # Encrypt image
   runcmd([eci_path, "encrypt", "--override-datasources", "NoCloud", "-o", "disk.img", "livecd.ubuntu-cpc.azure.fde.vhd"], cwd=TEMPDIR.name)
-  runcmd([eci_path, "deploy", "--srk-pub", "srk.pub", "disk.img"], cwd=TEMPDIR.name)
-
-  # Create virtual machine
-  vm = VirtualMachine(TEMPDIR.name, None, args.arch, Firmware.UEFI)
+  runcmd([eci_path, "deploy",
+    "--srk-pub", "srk.pub",
+    "--uefi-config", uefi_config_path,
+    "--add-efi-boot-manager-profile",
+    "--add-efi-secure-boot-profile",
+    "--add-ubuntu-kernel-profile",
+    "disk.img"], cwd=TEMPDIR.name)
 
   def installnew():
     # Copy packages to VM

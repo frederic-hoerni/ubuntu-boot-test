@@ -16,14 +16,19 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import base64
+import datetime
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import typing as tp
+from dataclasses import dataclass
+from pprint import pformat
 from time import sleep
 
 from ubuntu_boot_test import config, util
+from ubuntu_boot_test.efibootvars import EFIVars
 from ubuntu_boot_test.tpm import TPM
 from ubuntu_boot_test.vm import VirtualMachine
 
@@ -31,6 +36,21 @@ from ubuntu_boot_test.vm import VirtualMachine
 PACKAGE_SETS = {
     util.Arch.AMD64: {"nullboot"},
 }
+
+# NOTE: We need to wait for the nullboot systemd service to finish running
+# before we can query EFIVars on startup; otherwise, we cannot accurately
+# test the state of different variables
+NULLBOOT_WAIT_TIME = datetime.timedelta(seconds=15)
+
+
+def boot_entry_hex_str(i: int) -> str:
+    """Convert integer into BootEntry hex string format."""
+    return f"{i:04X}"
+
+
+def boot_order_hex_str(boot_order: tp.List[int]) -> str:
+    """Convert integers in BootOrder into BootEntry hex string format."""
+    return ",".join([boot_entry_hex_str(boot_num) for boot_num in boot_order])
 
 
 class EncryptCloudImage:
@@ -120,6 +140,69 @@ class EncryptCloudImage:
                 assert False, "Failed to load nbd"
 
 
+@dataclass
+class LocalCryptographicVariable:
+    variable: bytes
+    file_path: str
+
+    def __post_init__(self):
+        """
+        Write the variable content to the file path provided during
+        initialization.
+        """
+        if os.path.isfile(self.file_path):
+            raise ValueError(
+                f"Cannot write local cryptographic file: {repr(self.file_path)} already exists"
+            )
+
+        with open(self.file_path, "wb") as f:
+            f.write(self.variable)
+
+
+@dataclass
+class EFISignature:
+    """
+    Maintains an EFI Signature, comprised of a private signing key and its
+    public certificate as well as an EFI Signature List (ESL) formatted
+    version of the certificate.
+    """
+
+    # Key Data
+    local_pem_key: LocalCryptographicVariable
+    local_pem_cert: LocalCryptographicVariable
+    esl_cert: bytes
+
+    @classmethod
+    def x509_format(cls, key_dir: str):
+        """
+        Generates the private key, public certificate, and ESL-formatted
+        certificate in the x509 format for digital signatures.
+        """
+        # esl -> EFI Signature List
+        pem_key, pem_cert, esl_cert = util.gen_efi_signkey()
+
+        pem_key_path = os.path.join(key_dir, "efi_signature.pem")
+        pem_cert_path = os.path.join(key_dir, "efi_signature.cert")
+
+        local_pem_key = LocalCryptographicVariable(pem_key, pem_key_path)
+        local_pem_cert = LocalCryptographicVariable(pem_cert, pem_cert_path)
+
+        return cls(
+            local_pem_key=local_pem_key,
+            local_pem_cert=local_pem_cert,
+            esl_cert=esl_cert,
+        )
+
+    def register_to_vm(self, vm: VirtualMachine) -> None:
+        """
+        Registers the ESL-formatted certificate for use on the virtual
+        machine.
+        """
+        vm.write_efivar(
+            util.EFI_IMAGE_SECURITY_DATABASE_GUID, "db", self.esl_cert, append=True
+        )
+
+
 class ConfidentialVirtualMachine(VirtualMachine):
 
     def __init__(
@@ -173,6 +256,39 @@ class ConfidentialVirtualMachine(VirtualMachine):
             cwd=install_dir,
         )
         return vhd_name
+
+
+def build_signed_bad_uki(efi_signature: EFISignature, cwd: str) -> str:
+    """
+    Constructs a UKI on the host machine that intentionally panics on boot,
+    signs it for Secure Boot, and reports the path to the new kernel.
+    """
+    # NOTE: Using kernel from host OS simply because it is more convenient
+    # The intent is for the kernel to panic, so it doesn't need to work on
+    # the CVM, and it is easier than setting up ukify on the CVM
+    release = os.uname().release
+    linux_name = f"vmlinuz-{release}"
+    efi_name = "kernel.efi-99999-broken-azure"
+    cmd = [
+        "sudo",
+        "ukify",
+        "build",
+        "--cmdline",
+        "console=ttyS0 panic=-1",
+        "--linux",
+        f"/boot/{linux_name}",
+        "--output",
+        efi_name,
+        "--secureboot-private-key",
+        efi_signature.local_pem_key.file_path,
+        "--secureboot-certificate",
+        efi_signature.local_pem_cert.file_path,
+    ]
+    response = subprocess.run(cmd, cwd=cwd)
+    if response.returncode != 0:
+        raise ValueError(f'Unable to create broken UKI via: {repr(" ".join(cmd))}')
+
+    return os.path.join(cwd, efi_name)
 
 
 def write_uefi_config(vm: VirtualMachine) -> str:
@@ -229,6 +345,112 @@ def register(subparsers) -> None:
     )
 
 
+def test_fallback_mechanism(
+    cvm: ConfidentialVirtualMachine,
+    efi_signature: EFISignature,
+    tempdir: tempfile.TemporaryDirectory,
+) -> None:
+    """
+    This tests that the fallback mechanism is working as intended;
+    i.e. the installation of a broken kernel does not update the BootOrder
+    and only boots as BootNext to ensure a panic does not result in an
+    infinite boot-loop on the first entry in BootOrder. Raises
+    AssertionError if the logical portion of the test fails.
+    """
+    failures = []
+
+    initial_bootvars = EFIVars.from_efibootmgr(cvm)
+
+    print("Generating signed, broken UKI")
+    broken_uki_path = build_signed_bad_uki(efi_signature, tempdir.name)
+    print("Generated signed, broken UKI")
+
+    print("Copying broken UKI to CVM")
+    cvm.copy_files([broken_uki_path], "/usr/lib/linux/efi/")
+    print(f"Copied {repr(broken_uki_path)} to '/usr/lib/linux/efi/'")
+
+    print("Running nullbootctl")
+    cvm.run_cmd(["nullbootctl"])
+
+    bad_kernel_bootvars = EFIVars.from_efibootmgr(cvm)
+    if bad_kernel_bootvars.boot_order != initial_bootvars.boot_order:
+        failures.append(
+            {
+                "msg": "BootOrder changed after bad-kernel installation",
+                "expected BootOrder": boot_order_hex_str(initial_bootvars.boot_order),
+                "got BootOrder": boot_order_hex_str(bad_kernel_bootvars.boot_order),
+            }
+        )
+    if bad_kernel_bootvars.boot_current != initial_bootvars.boot_current:
+        failures.append(
+            {
+                "msg": "BootCurrent changed after bad-kernel installation",
+                "expected BootCurrent": boot_entry_hex_str(
+                    initial_bootvars.boot_current
+                ),
+                "got BootCurrent": boot_entry_hex_str(bad_kernel_bootvars.boot_current),
+            }
+        )
+    if bad_kernel_bootvars.boot_next == initial_bootvars.boot_next:
+        failures.append(
+            {
+                "msg": "BootNext did not change after bad-kernel installation",
+                "got BootNext": (
+                    boot_entry_hex_str(bad_kernel_bootvars.boot_next)
+                    if bad_kernel_bootvars.boot_next
+                    else None
+                ),
+            }
+        )
+    if bad_kernel_bootvars.entries == initial_bootvars.entries:
+        failures.append(
+            {
+                "msg": "Entries did not change after bad-kernel installation (check that bad kernel was added as an entry)",
+                "got BootNext": (
+                    boot_entry_hex_str(bad_kernel_bootvars.boot_next)
+                    if bad_kernel_bootvars.boot_next
+                    else None
+                ),
+            }
+        )
+
+    # If failed at this point, the rest of the test is invalid
+    assert failures == [], f"Fallback mechanism failed: {pformat(failures)}"
+
+    print("Restarting CVM")
+    cvm.reboot(NULLBOOT_WAIT_TIME.seconds)
+    print("Restarted CVM")
+
+    post_restart_bootvars = EFIVars.from_efibootmgr(cvm)
+
+    if bad_kernel_bootvars.boot_order != post_restart_bootvars.boot_order:
+        failures.append(
+            {
+                "msg": "BootOrder unexpectedly changed after reboot",
+                "expected": bad_kernel_bootvars.dump(),
+                "got": post_restart_bootvars.dump(),
+            }
+        )
+    if bad_kernel_bootvars.boot_current != post_restart_bootvars.boot_current:
+        failures.append(
+            {
+                "msg": "BootCurrent unexpectedly changed after reboot",
+                "expected": bad_kernel_bootvars.dump(),
+                "got": post_restart_bootvars.dump(),
+            }
+        )
+    if post_restart_bootvars.boot_next != None:
+        failures.append(
+            {
+                "msg": "BootNext is still set after reboot",
+                "expected": None,
+                "got": boot_entry_hex_str(post_restart_bootvars.boot_next),
+            }
+        )
+
+    assert failures == [], f"Fallback mechanism failed: {pformat(failures)}"
+
+
 def execute(args):
     """Generate the test environment and run nullboot end-to-end tests."""
     arch = util.Arch(args.arch)
@@ -253,6 +475,10 @@ def execute(args):
     cvm = ConfidentialVirtualMachine(tempdir.name, None, arch, util.Firmware.UEFI)
     print("Initialized VM Environment")
 
+    efi_signature = EFISignature.x509_format(tempdir.name)
+    efi_signature.register_to_vm(cvm)
+    print("Registered EFI Signature to VM")
+
     uefi_config_path = write_uefi_config(cvm)
     print("Wrote UEFI Config")
 
@@ -273,16 +499,22 @@ def execute(args):
     )
     print("Deployed CVM Image")
 
-    installnew = lambda: install_new_packages(cvm, package_paths)
+    print("Begin Testing")
+    cvm.start()
+    print("Boot and provision image OK")
 
-    TASKS = [
-        (lambda: True, cvm.start, "Boot and provision image"),
-        (lambda: True, installnew, "Install new nullboot"),
-        (lambda: True, cvm.reboot, "Shut down and reboot virtual machine"),
-        (lambda: True, cvm.shutdown, "Shut down"),
-    ]
+    install_new_packages(cvm, package_paths)
+    print("Install new nullboot OK")
 
-    for predicate, do_task, msg in TASKS:
-        if predicate():
-            do_task()
-            print(f"{msg} OK")
+    # Rebooting at this point tests that we can still unlock the FDE key
+    # boot, and connect into the CVM after nullboot installation trigger
+    # is run
+    cvm.reboot(NULLBOOT_WAIT_TIME.seconds)
+    print("Shut down and reboot virtual machine OK")
+
+    # Run tests
+    test_fallback_mechanism(cvm, efi_signature, tempdir)
+    print("Test fallback mechanism OK")
+
+    cvm.shutdown()
+    print("Shut down OK")

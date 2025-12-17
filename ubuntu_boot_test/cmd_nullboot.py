@@ -1,4 +1,4 @@
-# ubuntu-boot-test: cmd_uefi_shim.py: UEFI shim boot test
+# ubuntu-boot-test: cmd_nullboot.py: nullboot boot test
 #
 # Copyright (C) 2023 Canonical, Ltd.
 # Author: Mate Kukri <mate.kukri@canonical.com>
@@ -26,6 +26,11 @@ from time import sleep
 from ubuntu_boot_test import config, util
 from ubuntu_boot_test.tpm import TPM
 from ubuntu_boot_test.vm import VirtualMachine
+
+# Required packages per architecture
+PACKAGE_SETS = {
+    util.Arch.AMD64: {"nullboot"},
+}
 
 
 class EncryptCloudImage:
@@ -209,7 +214,8 @@ def install_new_packages(vm: VirtualMachine, package_paths: tp.List[str]) -> Non
     vm.run_cmd(["apt", "install", "--yes", "/tmp/*.deb"])
 
 
-def register(subparsers):
+def register(subparsers) -> None:
+    """Register this file for testing via CLI."""
     parser = subparsers.add_parser("nullboot", description="nullboot boot test")
 
     parser.add_argument("-r", "--release", required=True, help="Guest Ubuntu release")
@@ -224,16 +230,14 @@ def register(subparsers):
 
 
 def execute(args):
+    """Generate the test environment and run nullboot end-to-end tests."""
+    arch = util.Arch(args.arch)
+    release = args.release
+    packages = args.packages
+
     tempdir = tempfile.TemporaryDirectory("")
 
-    PACKAGE_SETS = {
-        util.Arch.AMD64: set(("nullboot",)),
-    }
-
-    # Prepare packages for install
-    package_paths = util.prepare_packages(
-        tempdir.name, PACKAGE_SETS[args.arch], args.packages
-    )
+    package_paths = util.prepare_packages(tempdir.name, PACKAGE_SETS[arch], packages)
 
     # Download ECI before image to ensure NBD is loaded before setting up
     # VM infrastructure (which can be time-consuming)
@@ -246,7 +250,7 @@ def execute(args):
     print("Downloaded and truncated CVM Image")
 
     # Create virtual machine
-    cvm = ConfidentialVirtualMachine(tempdir.name, None, args.arch, util.Firmware.UEFI)
+    cvm = ConfidentialVirtualMachine(tempdir.name, None, arch, util.Firmware.UEFI)
     print("Initialized VM Environment")
 
     uefi_config_path = write_uefi_config(cvm)

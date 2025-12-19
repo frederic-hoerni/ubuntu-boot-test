@@ -258,7 +258,7 @@ class ConfidentialVirtualMachine(VirtualMachine):
         return vhd_name
 
 
-def build_signed_bad_uki(efi_signature: EFISignature, cwd: str) -> str:
+def build_signed_bad_uki(efi_signature: EFISignature, version: int, cwd: str) -> str:
     """
     Constructs a UKI on the host machine that intentionally panics on boot,
     signs it for Secure Boot, and reports the path to the new kernel.
@@ -268,7 +268,7 @@ def build_signed_bad_uki(efi_signature: EFISignature, cwd: str) -> str:
     # the CVM, and it is easier than setting up ukify on the CVM
     release = os.uname().release
     linux_name = f"vmlinuz-{release}"
-    efi_name = "kernel.efi-99999-broken-azure"
+    efi_name = f"kernel.efi-{version}-broken-azure"
     cmd = [
         "sudo",
         "ukify",
@@ -289,6 +289,30 @@ def build_signed_bad_uki(efi_signature: EFISignature, cwd: str) -> str:
         raise ValueError(f'Unable to create broken UKI via: {repr(" ".join(cmd))}')
 
     return os.path.join(cwd, efi_name)
+
+
+def copy_host_kernel(vm: VirtualMachine, new_version: int) -> str:
+    """
+    Copies the existing kernel as the latest kernel (by version) to the
+    specified virtual machine.
+    """
+    release = vm.run_cmd(
+        [
+            "uname",
+            "-r",
+        ]
+    ).strip()  # remove newline
+    kernel_path = f"/usr/lib/linux/efi/kernel.efi-{release}"
+    new_kernel_path = f"/usr/lib/linux/efi/kernel.efi-{new_version}-good-azure"
+    print(f"Copying {repr(kernel_path)} to {repr(new_kernel_path)}")
+    vm.run_cmd(
+        [
+            "cp",
+            kernel_path,
+            new_kernel_path,
+        ]
+    )
+    return new_kernel_path
 
 
 def write_uefi_config(vm: VirtualMachine) -> str:
@@ -348,6 +372,7 @@ def register(subparsers) -> None:
 def test_fallback_mechanism(
     cvm: ConfidentialVirtualMachine,
     efi_signature: EFISignature,
+    latest_kernel_version: int,
     tempdir: tempfile.TemporaryDirectory,
 ) -> None:
     """
@@ -362,7 +387,9 @@ def test_fallback_mechanism(
     initial_bootvars = EFIVars.from_efibootmgr(cvm)
 
     print("Generating signed, broken UKI")
-    broken_uki_path = build_signed_bad_uki(efi_signature, tempdir.name)
+    broken_uki_path = build_signed_bad_uki(
+        efi_signature, latest_kernel_version, tempdir.name
+    )
     print("Generated signed, broken UKI")
 
     print("Copying broken UKI to CVM")
@@ -451,6 +478,96 @@ def test_fallback_mechanism(
     assert failures == [], f"Fallback mechanism failed: {pformat(failures)}"
 
 
+def test_systemd_service(
+    cvm: ConfidentialVirtualMachine,
+    efi_signature: EFISignature,
+    latest_kernel_version: int,
+    tempdir: tempfile.TemporaryDirectory,
+) -> None:
+    """
+    This tests the expected functionality of the systemd service in the
+    nullboot package such that it will amend the BootOrder in the event
+    that a known good kernel successfully boots. It verifies that the
+    kernel is booted from BootNext is BootOrder[0] and BootCurrent after
+    restart. Raises AssertionError if the logical portion of thetest fails.
+    """
+    failures = []
+
+    initial_bootvars = EFIVars.from_efibootmgr(cvm)
+
+    # Copy known good kernel to test it boots properly
+    copy_host_kernel(cvm, latest_kernel_version)
+
+    print("Running nullbootctl")
+    cvm.run_cmd(["nullbootctl"])
+    good_kernel_bootvars = EFIVars.from_efibootmgr(cvm)
+
+    if good_kernel_bootvars.boot_order != initial_bootvars.boot_order:
+        failures.append(
+            {
+                "msg": "BootOrder changed after new kernel installation",
+                "expected BootOrder": boot_order_hex_str(initial_bootvars.boot_order),
+                "got BootOrder": boot_order_hex_str(good_kernel_bootvars.boot_order),
+            }
+        )
+    if good_kernel_bootvars.boot_current != initial_bootvars.boot_current:
+        failures.append(
+            {
+                "msg": "BootCurrent changed after new kernel installation",
+                "expected BootCurrent": boot_entry_hex_str(
+                    initial_bootvars.boot_current
+                ),
+                "got BootCurrent": boot_entry_hex_str(
+                    good_kernel_bootvars.boot_current
+                ),
+            }
+        )
+
+    if (
+        good_kernel_bootvars.boot_next == None
+        or good_kernel_bootvars.boot_next == initial_bootvars.boot_next
+    ):
+        failures.append(
+            {
+                "msg": "BootNext did not change after new kernel installation",
+                "got BootNext": (
+                    boot_entry_hex_str(good_kernel_bootvars.boot_next)
+                    if good_kernel_bootvars.boot_next
+                    else None
+                ),
+            }
+        )
+
+    # If failed at this point, the rest of the test is invalid
+    assert failures == [], f"Failed to install new kernel: {pformat(failures)}"
+
+    print("Restarting CVM")
+    cvm.reboot(NULLBOOT_WAIT_TIME_SECONDS)
+    print("Restarted CVM")
+    reboot_bootvars = EFIVars.from_efibootmgr(cvm)
+
+    if reboot_bootvars.boot_current != good_kernel_bootvars.boot_next:
+        failures.append(
+            {
+                "msg": "BootNext was not booted",
+                "expected BootCurrent": boot_entry_hex_str(
+                    good_kernel_bootvars.boot_next
+                ),
+                "got BootCurrent": boot_entry_hex_str(reboot_bootvars.boot_current),
+            }
+        )
+    if reboot_bootvars.boot_current != reboot_bootvars.boot_order[0]:
+        failures.append(
+            {
+                "msg": "BootCurrent is not the first entry in the BootOrder",
+                "BootCurrent": boot_entry_hex_str(reboot_bootvars.boot_current),
+                "BootOrder": boot_order_hex_str(reboot_bootvars.boot_order),
+            }
+        )
+
+    assert failures == [], f"Systemd service failed: {pformat(failures)}"
+
+
 def execute(args):
     """Generate the test environment and run nullboot end-to-end tests."""
     arch = util.Arch(args.arch)
@@ -512,9 +629,16 @@ def execute(args):
     cvm.reboot(NULLBOOT_WAIT_TIME.seconds)
     print("Shut down and reboot virtual machine OK")
 
+    # Need kernel artifacts to be registered as the latest available kernel version
+    latest_kernel_version = 99999
+
     # Run tests
-    test_fallback_mechanism(cvm, efi_signature, tempdir)
+    test_fallback_mechanism(cvm, efi_signature, latest_kernel_version, tempdir)
     print("Test fallback mechanism OK")
+
+    latest_kernel_version += 1
+    test_systemd_service(cvm, efi_signature, latest_kernel_version, tempdir)
+    print("Test systemd service OK")
 
     cvm.shutdown()
     print("Shut down OK")

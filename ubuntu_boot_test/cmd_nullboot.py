@@ -51,7 +51,7 @@ def ensure_nbd_loaded():
 
 
 def execute(args):
-    TEMPDIR = tempfile.TemporaryDirectory("")
+    tempdir = tempfile.TemporaryDirectory("")
 
     PACKAGE_SETS = {
         Arch.AMD64: set(("nullboot",)),
@@ -62,28 +62,28 @@ def execute(args):
 
     # Prepare packages for install
     package_paths = prepare_packages(
-        TEMPDIR.name, PACKAGE_SETS[args.arch], args.packages
+        tempdir.name, PACKAGE_SETS[args.arch], args.packages
     )
 
     # Download and CVM vhd tarball
-    vhd_tarball = os.path.join(TEMPDIR.name, "vhd.tar.gz")
+    vhd_tarball = os.path.join(tempdir.name, "vhd.tar.gz")
     download_file(cvm_cloud_url(args.release, args.arch), vhd_tarball)
-    runcmd(["tar", "xf", vhd_tarball], cwd=TEMPDIR.name)
+    runcmd(["tar", "xf", vhd_tarball], cwd=tempdir.name)
 
     # Resize the VHD while it is sparse so that it actually fits on disk once encrypted
     runcmd(
-        ["truncate", "-s", "4G", "livecd.ubuntu-cpc.azure.fde.vhd"], cwd=TEMPDIR.name
+        ["truncate", "-s", "4G", "livecd.ubuntu-cpc.azure.fde.vhd"], cwd=tempdir.name
     )
 
     # Download encrypt-cloud-image and mark it executable
-    eci_path = os.path.join(TEMPDIR.name, "encrypt-cloud-image")
+    eci_path = os.path.join(tempdir.name, "encrypt-cloud-image")
     github_download_release_asset(
         "canonical/encrypt-cloud-image", "latest", "encrypt-cloud-image", eci_path
     )
     runcmd(["chmod", "+x", eci_path])
 
     # Create virtual machine
-    vm = VirtualMachine(TEMPDIR.name, None, args.arch, Firmware.UEFI)
+    vm = VirtualMachine(tempdir.name, None, args.arch, Firmware.UEFI)
     # Create UEFI config for VM
     uefi_config = {
         "PK": base64.b64encode(vm.read_efivar(EFI_GLOBAL_VARIABLE_GUID, "PK")).decode(),
@@ -98,16 +98,16 @@ def execute(args):
         ).decode(),
         "omitsReadyToBootEvent": False,
     }
-    uefi_config_path = os.path.join(TEMPDIR.name, "uefi.json")
+    uefi_config_path = os.path.join(tempdir.name, "uefi.json")
     with open(uefi_config_path, "w") as f:
         if DEBUG:
             print("Using UEFI config", json.dumps(uefi_config))
         f.write(json.dumps(uefi_config))
 
     # Create virtual TPM
-    tpm = TPM(TEMPDIR.name)
+    tpm = TPM(tempdir.name)
     # Generate SRK
-    tpm.generate_srk(TEMPDIR.name)
+    tpm.generate_srk(tempdir.name)
     # Encrypt image
     runcmd(
         [
@@ -119,7 +119,7 @@ def execute(args):
             "disk.img",
             "livecd.ubuntu-cpc.azure.fde.vhd",
         ],
-        cwd=TEMPDIR.name,
+        cwd=tempdir.name,
     )
     runcmd(
         [
@@ -134,7 +134,7 @@ def execute(args):
             "--add-ubuntu-kernel-profile",
             "disk.img",
         ],
-        cwd=TEMPDIR.name,
+        cwd=tempdir.name,
     )
 
     def installnew():

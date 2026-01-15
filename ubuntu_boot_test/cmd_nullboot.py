@@ -26,6 +26,93 @@ from ubuntu_boot_test.tpm import TPM
 from ubuntu_boot_test.vm import VirtualMachine
 
 
+class EncryptCloudImage:
+    """Singleton class to download and execute encrypt-cloud-image."""
+
+    # NOTE: Someone can easily `EncryptCloudImage._instance = None` and
+    # this is no longer a "Singleton", but the idea is that there should
+    # not be multiple downloads of encrypt-cloud-image regardless of how
+    # many CVMs are downloaded or encrypted.
+
+    _instance = None
+
+    def __new__(cls, install_dir: str):
+        if cls._instance is None:
+            # Only allow one instance
+            cls._instance = super(EncryptCloudImage, cls).__new__(cls)
+        return cls._instance
+
+    def __init__(self, install_dir: str):
+        """
+        Downloads the encrypt_cloud_image package in order to encrypt the
+        CVM image.
+        """
+        EncryptCloudImage._ensure_nbd_loaded()
+        # Download encrypt-cloud-image and mark it executable
+        eci_path = os.path.join(install_dir, "encrypt-cloud-image")
+        util.github_download_release_asset(
+            "canonical/encrypt-cloud-image", "latest", "encrypt-cloud-image", eci_path
+        )
+        util.runcmd(["chmod", "+x", eci_path])
+        self.executable = eci_path
+
+    def encrypt(
+        self,
+        image_dir: str,
+        image_name: str,
+        encrypted_image_name: str,
+        cwd: str,
+    ) -> None:
+        # Encrypt image
+        util.runcmd(
+            [
+                self.executable,
+                "encrypt",
+                "--override-datasources",
+                "NoCloud",
+                "-o",
+                os.path.join(image_dir, encrypted_image_name),
+                os.path.join(image_dir, image_name),
+            ],
+            cwd=cwd,
+        )
+
+    def deploy(
+        self,
+        uefi_config_path: str,
+        encrypted_image_name: str,
+        srk_path: str,
+        cwd: str,
+    ) -> None:
+        util.runcmd(
+            [
+                self.executable,
+                "deploy",
+                "--srk-pub",
+                "srk.pub",
+                "--uefi-config",
+                uefi_config_path,
+                "--add-efi-boot-manager-profile",
+                "--add-efi-secure-boot-profile",
+                "--add-ubuntu-kernel-profile",
+                "disk.img",
+            ],
+            cwd=cwd,
+        )
+
+    @staticmethod
+    def _ensure_nbd_loaded() -> None:
+        """
+        Checks that the nbd module is loaded; required for CVM encryption.
+        """
+        lsmod_result = subprocess.run(["lsmod"], stdout=subprocess.PIPE)
+        if b"nbd" not in lsmod_result.stdout:
+            if os.getuid() != 0:
+                assert False, "Need root to load nbd"
+            if subprocess.run(["modprobe", "nbd"]).returncode != 0:
+                assert False, "Failed to load nbd"
+
+
 def register(subparsers):
     parser = subparsers.add_parser("nullboot", description="nullboot boot test")
 
@@ -40,15 +127,6 @@ def register(subparsers):
     )
 
 
-def ensure_nbd_loaded():
-    lsmod_result = subprocess.run(["lsmod"], stdout=subprocess.PIPE)
-    if b"nbd" not in lsmod_result.stdout:
-        if os.getuid() != 0:
-            assert False, "Need root to load nbd"
-        if subprocess.run(["modprobe", "nbd"]).returncode != 0:
-            assert False, "Failed to load nbd"
-
-
 def execute(args):
     tempdir = tempfile.TemporaryDirectory("")
 
@@ -56,13 +134,15 @@ def execute(args):
         util.Arch.AMD64: set(("nullboot",)),
     }
 
-    # Make sure the NBD module is present
-    ensure_nbd_loaded()
-
     # Prepare packages for install
     package_paths = util.prepare_packages(
         tempdir.name, PACKAGE_SETS[args.arch], args.packages
     )
+
+    # Download ECI before image to ensure NBD is loaded before setting up
+    # VM infrastructure (which can be time-consuming)
+    eci = EncryptCloudImage(tempdir.name)
+    print("Initialized encrypt-cloud-image")
 
     # Download and CVM vhd tarball
     vhd_tarball = os.path.join(tempdir.name, "vhd.tar.gz")
@@ -70,16 +150,8 @@ def execute(args):
     util.runcmd(["tar", "xf", vhd_tarball], cwd=tempdir.name)
 
     # Resize the VHD while it is sparse so that it actually fits on disk once encrypted
-    util.runcmd(
-        ["truncate", "-s", "4G", "livecd.ubuntu-cpc.azure.fde.vhd"], cwd=tempdir.name
-    )
-
-    # Download encrypt-cloud-image and mark it executable
-    eci_path = os.path.join(tempdir.name, "encrypt-cloud-image")
-    util.github_download_release_asset(
-        "canonical/encrypt-cloud-image", "latest", "encrypt-cloud-image", eci_path
-    )
-    util.runcmd(["chmod", "+x", eci_path])
+    cvm_image_name = "livecd.ubuntu-cpc.azure.fde.vhd"
+    util.runcmd(["truncate", "-s", "4G", cvm_image_name], cwd=tempdir.name)
 
     # Create virtual machine
     vm = VirtualMachine(tempdir.name, None, args.arch, util.Firmware.UEFI)
@@ -109,34 +181,23 @@ def execute(args):
     tpm = TPM(tempdir.name)
     # Generate SRK
     tpm.generate_srk(tempdir.name)
-    # Encrypt image
-    util.runcmd(
-        [
-            eci_path,
-            "encrypt",
-            "--override-datasources",
-            "NoCloud",
-            "-o",
-            "disk.img",
-            "livecd.ubuntu-cpc.azure.fde.vhd",
-        ],
+
+    # VirtualMachine uses "disk.img" as the name of the image
+    encrypted_image_name = "disk.img"
+    eci.encrypt(
+        image_dir=tempdir.name,
+        image_name=cvm_image_name,
+        encrypted_image_name=encrypted_image_name,
         cwd=tempdir.name,
     )
-    util.runcmd(
-        [
-            eci_path,
-            "deploy",
-            "--srk-pub",
-            "srk.pub",
-            "--uefi-config",
-            uefi_config_path,
-            "--add-efi-boot-manager-profile",
-            "--add-efi-secure-boot-profile",
-            "--add-ubuntu-kernel-profile",
-            "disk.img",
-        ],
+    print("Encrypted CVM Image")
+    eci.deploy(
+        uefi_config_path=uefi_config_path,
+        encrypted_image_name=encrypted_image_name,
+        srk_path="srk.pub",
         cwd=tempdir.name,
     )
+    print("Deployed CVM Image")
 
     def installnew():
         # Copy packages to VM

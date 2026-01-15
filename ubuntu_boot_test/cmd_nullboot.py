@@ -21,9 +21,8 @@ import os
 import subprocess
 import tempfile
 
-from ubuntu_boot_test.config import *
+from ubuntu_boot_test import config, util
 from ubuntu_boot_test.tpm import TPM
-from ubuntu_boot_test.util import *
 from ubuntu_boot_test.vm import VirtualMachine
 
 
@@ -32,7 +31,7 @@ def register(subparsers):
 
     parser.add_argument("-r", "--release", required=True, help="Guest Ubuntu release")
     parser.add_argument(
-        "-a", "--arch", required=True, type=Arch, help="Guest architecture"
+        "-a", "--arch", required=True, type=util.Arch, help="Guest architecture"
     )
     parser.add_argument(
         "packages",
@@ -54,53 +53,55 @@ def execute(args):
     tempdir = tempfile.TemporaryDirectory("")
 
     PACKAGE_SETS = {
-        Arch.AMD64: set(("nullboot",)),
+        util.Arch.AMD64: set(("nullboot",)),
     }
 
     # Make sure the NBD module is present
     ensure_nbd_loaded()
 
     # Prepare packages for install
-    package_paths = prepare_packages(
+    package_paths = util.prepare_packages(
         tempdir.name, PACKAGE_SETS[args.arch], args.packages
     )
 
     # Download and CVM vhd tarball
     vhd_tarball = os.path.join(tempdir.name, "vhd.tar.gz")
-    download_file(cvm_cloud_url(args.release, args.arch), vhd_tarball)
-    runcmd(["tar", "xf", vhd_tarball], cwd=tempdir.name)
+    util.download_file(util.cvm_cloud_url(args.release, args.arch), vhd_tarball)
+    util.runcmd(["tar", "xf", vhd_tarball], cwd=tempdir.name)
 
     # Resize the VHD while it is sparse so that it actually fits on disk once encrypted
-    runcmd(
+    util.runcmd(
         ["truncate", "-s", "4G", "livecd.ubuntu-cpc.azure.fde.vhd"], cwd=tempdir.name
     )
 
     # Download encrypt-cloud-image and mark it executable
     eci_path = os.path.join(tempdir.name, "encrypt-cloud-image")
-    github_download_release_asset(
+    util.github_download_release_asset(
         "canonical/encrypt-cloud-image", "latest", "encrypt-cloud-image", eci_path
     )
-    runcmd(["chmod", "+x", eci_path])
+    util.runcmd(["chmod", "+x", eci_path])
 
     # Create virtual machine
-    vm = VirtualMachine(tempdir.name, None, args.arch, Firmware.UEFI)
+    vm = VirtualMachine(tempdir.name, None, args.arch, util.Firmware.UEFI)
     # Create UEFI config for VM
     uefi_config = {
-        "PK": base64.b64encode(vm.read_efivar(EFI_GLOBAL_VARIABLE_GUID, "PK")).decode(),
+        "PK": base64.b64encode(
+            vm.read_efivar(util.EFI_GLOBAL_VARIABLE_GUID, "PK")
+        ).decode(),
         "KEK": base64.b64encode(
-            vm.read_efivar(EFI_GLOBAL_VARIABLE_GUID, "KEK")
+            vm.read_efivar(util.EFI_GLOBAL_VARIABLE_GUID, "KEK")
         ).decode(),
         "db": base64.b64encode(
-            vm.read_efivar(EFI_IMAGE_SECURITY_DATABASE_GUID, "db")
+            vm.read_efivar(util.EFI_IMAGE_SECURITY_DATABASE_GUID, "db")
         ).decode(),
         "dbx": base64.b64encode(
-            vm.read_efivar(EFI_IMAGE_SECURITY_DATABASE_GUID, "dbx")
+            vm.read_efivar(util.EFI_IMAGE_SECURITY_DATABASE_GUID, "dbx")
         ).decode(),
         "omitsReadyToBootEvent": False,
     }
     uefi_config_path = os.path.join(tempdir.name, "uefi.json")
     with open(uefi_config_path, "w") as f:
-        if DEBUG:
+        if util.DEBUG:
             print("Using UEFI config", json.dumps(uefi_config))
         f.write(json.dumps(uefi_config))
 
@@ -109,7 +110,7 @@ def execute(args):
     # Generate SRK
     tpm.generate_srk(tempdir.name)
     # Encrypt image
-    runcmd(
+    util.runcmd(
         [
             eci_path,
             "encrypt",
@@ -121,7 +122,7 @@ def execute(args):
         ],
         cwd=tempdir.name,
     )
-    runcmd(
+    util.runcmd(
         [
             eci_path,
             "deploy",

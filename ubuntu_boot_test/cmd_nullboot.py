@@ -18,6 +18,7 @@
 import base64
 import datetime
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -41,6 +42,12 @@ PACKAGE_SETS = {
 # before we can query EFIVars on startup; otherwise, we cannot accurately
 # test the state of different variables
 NULLBOOT_WAIT_TIME = datetime.timedelta(seconds=15)
+
+if config.DEBUG:
+    logging.basicConfig(level=logging.DEBUG)
+else:
+    logging.basicConfig(level=logging.INFO)
+LOGGER = logging.getLogger(__name__)
 
 
 def boot_entry_hex_str(i: int) -> str:
@@ -233,9 +240,9 @@ class ConfidentialVirtualMachine(VirtualMachine):
         self.tpm.run_process()
         self.start()
         if wait_seconds:
-            print(f"Giving CVM {wait_seconds}s to initialize...")
+            LOGGER.debug(f"Giving CVM {wait_seconds}s to initialize...")
             sleep(wait_seconds)
-            print("Returning control")
+            LOGGER.debug("Returning control")
 
     @staticmethod
     def prepare_cvm_image(install_dir: str, release: str, arch: util.Arch) -> str:
@@ -304,7 +311,7 @@ def copy_host_kernel(vm: VirtualMachine, new_version: int) -> str:
     ).strip()  # remove newline
     kernel_path = f"/usr/lib/linux/efi/kernel.efi-{release}"
     new_kernel_path = f"/usr/lib/linux/efi/kernel.efi-{new_version}-good-azure"
-    print(f"Copying {repr(kernel_path)} to {repr(new_kernel_path)}")
+    LOGGER.debug(f"Copying {repr(kernel_path)} to {repr(new_kernel_path)}")
     vm.run_cmd(
         [
             "cp",
@@ -339,8 +346,7 @@ def write_uefi_config(vm: VirtualMachine) -> str:
     }
     uefi_config_path = os.path.join(vm._vmdir, "uefi.json")
     with open(uefi_config_path, "w") as f:
-        if config.DEBUG:
-            print("Using UEFI config", json.dumps(uefi_config))
+        LOGGER.debug("Using UEFI config", json.dumps(uefi_config))
         f.write(json.dumps(uefi_config))
 
     return uefi_config_path
@@ -386,18 +392,18 @@ def test_fallback_mechanism(
 
     initial_bootvars = EFIVars.from_efibootmgr(cvm)
 
-    print("Generating signed, broken UKI")
+    LOGGER.debug("Generating signed, broken UKI")
     broken_uki_path = build_signed_bad_uki(
         efi_signature, latest_kernel_version, tempdir.name
     )
-    print("Generated signed, broken UKI")
+    LOGGER.debug("Generated signed, broken UKI")
 
-    print("Copying broken UKI to CVM")
+    LOGGER.debug("Copying broken UKI to CVM")
     cvm.copy_files([broken_uki_path], "/usr/lib/linux/efi/")
-    print(f"Copied {repr(broken_uki_path)} to '/usr/lib/linux/efi/'")
+    LOGGER.debug(f"Copied {repr(broken_uki_path)} to '/usr/lib/linux/efi/'")
 
-    print("Running nullbootctl")
     cvm.run_cmd(["nullbootctl"])
+    LOGGER.info("Run nullbootctl OK")
 
     bad_kernel_bootvars = EFIVars.from_efibootmgr(cvm)
     if bad_kernel_bootvars.boot_order != initial_bootvars.boot_order:
@@ -444,9 +450,8 @@ def test_fallback_mechanism(
     # If failed at this point, the rest of the test is invalid
     assert failures == [], f"Fallback mechanism failed: {pformat(failures)}"
 
-    print("Restarting CVM")
     cvm.reboot(NULLBOOT_WAIT_TIME.seconds)
-    print("Restarted CVM")
+    LOGGER.info("Restart CVM OK")
 
     post_restart_bootvars = EFIVars.from_efibootmgr(cvm)
 
@@ -498,8 +503,9 @@ def test_systemd_service(
     # Copy known good kernel to test it boots properly
     copy_host_kernel(cvm, latest_kernel_version)
 
-    print("Running nullbootctl")
     cvm.run_cmd(["nullbootctl"])
+    LOGGER.info("Run nullbootctl OK")
+
     good_kernel_bootvars = EFIVars.from_efibootmgr(cvm)
 
     if good_kernel_bootvars.boot_order != initial_bootvars.boot_order:
@@ -541,11 +547,10 @@ def test_systemd_service(
     # If failed at this point, the rest of the test is invalid
     assert failures == [], f"Failed to install new kernel: {pformat(failures)}"
 
-    print("Restarting CVM")
-    cvm.reboot(NULLBOOT_WAIT_TIME_SECONDS)
-    print("Restarted CVM")
-    reboot_bootvars = EFIVars.from_efibootmgr(cvm)
+    cvm.reboot(NULLBOOT_WAIT_TIME.seconds)
+    LOGGER.info("Restart CVM OK")
 
+    reboot_bootvars = EFIVars.from_efibootmgr(cvm)
     if reboot_bootvars.boot_current != good_kernel_bootvars.boot_next:
         failures.append(
             {
@@ -581,23 +586,23 @@ def execute(args):
     # Download ECI before image to ensure NBD is loaded before setting up
     # VM infrastructure (which can be time-consuming)
     eci = EncryptCloudImage(tempdir.name)
-    print("Initialized encrypt-cloud-image")
+    LOGGER.debug("Initialized encrypt-cloud-image")
 
     cvm_image_name = ConfidentialVirtualMachine.prepare_cvm_image(
-        tempdir.name, args.release, args.arch
+        tempdir.name, release, arch
     )
-    print("Downloaded and truncated CVM Image")
+    LOGGER.debug("Downloaded and truncated CVM Image")
 
     # Create virtual machine
     cvm = ConfidentialVirtualMachine(tempdir.name, None, arch, util.Firmware.UEFI)
-    print("Initialized VM Environment")
+    LOGGER.debug("Initialized VM Environment")
 
     efi_signature = EFISignature.x509_format(tempdir.name)
     efi_signature.register_to_vm(cvm)
-    print("Registered EFI Signature to VM")
+    LOGGER.debug("Registered EFI Signature to VM")
 
     uefi_config_path = write_uefi_config(cvm)
-    print("Wrote UEFI Config")
+    LOGGER.debug("Wrote UEFI Config")
 
     # VirtualMachine uses "disk.img" as the name of the image
     encrypted_image_name = "disk.img"
@@ -607,38 +612,39 @@ def execute(args):
         encrypted_image_name=encrypted_image_name,
         cwd=tempdir.name,
     )
-    print("Encrypted CVM Image")
+    LOGGER.debug("Encrypted CVM Image")
+
     eci.deploy(
         uefi_config_path=uefi_config_path,
         encrypted_image_name=encrypted_image_name,
         srk_path="srk.pub",
         cwd=tempdir.name,
     )
-    print("Deployed CVM Image")
+    LOGGER.debug("Deployed CVM Image")
 
-    print("Begin Testing")
+    LOGGER.info("Begin Testing")
     cvm.start()
-    print("Boot and provision image OK")
+    LOGGER.info("Boot and provision image OK")
 
     install_new_packages(cvm, package_paths)
-    print("Install new nullboot OK")
+    LOGGER.info("Install new nullboot OK")
 
     # Rebooting at this point tests that we can still unlock the FDE key
     # boot, and connect into the CVM after nullboot installation trigger
     # is run
     cvm.reboot(NULLBOOT_WAIT_TIME.seconds)
-    print("Shut down and reboot virtual machine OK")
+    LOGGER.info("Shut down and reboot virtual machine OK")
 
     # Need kernel artifacts to be registered as the latest available kernel version
     latest_kernel_version = 99999
 
     # Run tests
     test_fallback_mechanism(cvm, efi_signature, latest_kernel_version, tempdir)
-    print("Test fallback mechanism OK")
+    LOGGER.info("Test fallback mechanism OK")
 
     latest_kernel_version += 1
     test_systemd_service(cvm, efi_signature, latest_kernel_version, tempdir)
-    print("Test systemd service OK")
+    LOGGER.info("Test systemd service OK")
 
     cvm.shutdown()
-    print("Shut down OK")
+    LOGGER.info("Shut down OK")

@@ -20,6 +20,8 @@ import json
 import os
 import subprocess
 import tempfile
+import typing as tp
+from time import sleep
 
 from ubuntu_boot_test import config, util
 from ubuntu_boot_test.tpm import TPM
@@ -113,6 +115,100 @@ class EncryptCloudImage:
                 assert False, "Failed to load nbd"
 
 
+class ConfidentialVirtualMachine(VirtualMachine):
+
+    def __init__(
+        self,
+        cwd: str,
+        image_url: str,
+        arch: util.Arch,
+        firmware: util.Firmware,
+    ):
+        super().__init__(cwd, image_url, arch, firmware)
+        self.tpm = TPM(cwd)
+        # Generates "srk.pub" in cwd
+        self.tpm.generate_srk(cwd)
+
+    def start(self) -> None:  # type: ignore[override]
+        """Start the CVM with the TPM activated. Timeout after 30 minutes."""
+        super().start(tpm=self.tpm)
+
+    def reboot(self, wait_seconds: int = 0) -> None:
+        """Reboot the CVM and TPM processes."""
+
+        # NOTE: Using the reboot command limits stdout, so
+        # we shutdown and start instead
+        self.shutdown()
+
+        # shutdown turns off the TPM for some undocumented reason, so it
+        # needs to be restarted as well
+        self.tpm.run_process()
+        self.start()
+        if wait_seconds:
+            print(f"Giving CVM {wait_seconds}s to initialize...")
+            sleep(wait_seconds)
+            print("Returning control")
+
+    @staticmethod
+    def prepare_cvm_image(install_dir: str, release: str, arch: util.Arch) -> str:
+        """
+        Remotely pulls the CVM from the cloud storage location, unpacks it,
+        and truncates it for use in QEMU.
+        """
+        vhd_tarball = os.path.join(install_dir, "vhd.tar.gz")
+
+        # Download and CVM vhd tarball
+        util.download_file(util.cvm_cloud_url(release, arch), vhd_tarball)
+        util.runcmd(["tar", "xf", vhd_tarball], cwd=install_dir)
+
+        vhd_name = "livecd.ubuntu-cpc.azure.fde.vhd"
+        # Resize the VHD while it is sparse so that it actually fits on disk once encrypted
+        util.runcmd(
+            ["truncate", "-s", "4G", vhd_name],
+            cwd=install_dir,
+        )
+        return vhd_name
+
+
+def write_uefi_config(vm: VirtualMachine) -> str:
+    """
+    Writes the static UEFI configuration data for use in the virtual
+    machine. This must be run before the initial boot/provision or
+    there is no effect.
+    """
+    # Create UEFI config for VM
+    uefi_config = {
+        "PK": base64.b64encode(
+            vm.read_efivar(util.EFI_GLOBAL_VARIABLE_GUID, "PK")
+        ).decode(),
+        "KEK": base64.b64encode(
+            vm.read_efivar(util.EFI_GLOBAL_VARIABLE_GUID, "KEK")
+        ).decode(),
+        "db": base64.b64encode(
+            vm.read_efivar(util.EFI_IMAGE_SECURITY_DATABASE_GUID, "db")
+        ).decode(),
+        "dbx": base64.b64encode(
+            vm.read_efivar(util.EFI_IMAGE_SECURITY_DATABASE_GUID, "dbx")
+        ).decode(),
+        "omitsReadyToBootEvent": False,
+    }
+    uefi_config_path = os.path.join(vm._vmdir, "uefi.json")
+    with open(uefi_config_path, "w") as f:
+        if config.DEBUG:
+            print("Using UEFI config", json.dumps(uefi_config))
+        f.write(json.dumps(uefi_config))
+
+    return uefi_config_path
+
+
+def install_new_packages(vm: VirtualMachine, package_paths: tp.List[str]) -> None:
+    """Copies provided packages to the CVM and installs them."""
+    # Copy packages to VM
+    vm.copy_files(package_paths, "/tmp/")
+    # Install new packages
+    vm.run_cmd(["apt", "install", "--yes", "/tmp/*.deb"])
+
+
 def register(subparsers):
     parser = subparsers.add_parser("nullboot", description="nullboot boot test")
 
@@ -144,43 +240,17 @@ def execute(args):
     eci = EncryptCloudImage(tempdir.name)
     print("Initialized encrypt-cloud-image")
 
-    # Download and CVM vhd tarball
-    vhd_tarball = os.path.join(tempdir.name, "vhd.tar.gz")
-    util.download_file(util.cvm_cloud_url(args.release, args.arch), vhd_tarball)
-    util.runcmd(["tar", "xf", vhd_tarball], cwd=tempdir.name)
-
-    # Resize the VHD while it is sparse so that it actually fits on disk once encrypted
-    cvm_image_name = "livecd.ubuntu-cpc.azure.fde.vhd"
-    util.runcmd(["truncate", "-s", "4G", cvm_image_name], cwd=tempdir.name)
+    cvm_image_name = ConfidentialVirtualMachine.prepare_cvm_image(
+        tempdir.name, args.release, args.arch
+    )
+    print("Downloaded and truncated CVM Image")
 
     # Create virtual machine
-    vm = VirtualMachine(tempdir.name, None, args.arch, util.Firmware.UEFI)
-    # Create UEFI config for VM
-    uefi_config = {
-        "PK": base64.b64encode(
-            vm.read_efivar(util.EFI_GLOBAL_VARIABLE_GUID, "PK")
-        ).decode(),
-        "KEK": base64.b64encode(
-            vm.read_efivar(util.EFI_GLOBAL_VARIABLE_GUID, "KEK")
-        ).decode(),
-        "db": base64.b64encode(
-            vm.read_efivar(util.EFI_IMAGE_SECURITY_DATABASE_GUID, "db")
-        ).decode(),
-        "dbx": base64.b64encode(
-            vm.read_efivar(util.EFI_IMAGE_SECURITY_DATABASE_GUID, "dbx")
-        ).decode(),
-        "omitsReadyToBootEvent": False,
-    }
-    uefi_config_path = os.path.join(tempdir.name, "uefi.json")
-    with open(uefi_config_path, "w") as f:
-        if util.DEBUG:
-            print("Using UEFI config", json.dumps(uefi_config))
-        f.write(json.dumps(uefi_config))
+    cvm = ConfidentialVirtualMachine(tempdir.name, None, args.arch, util.Firmware.UEFI)
+    print("Initialized VM Environment")
 
-    # Create virtual TPM
-    tpm = TPM(tempdir.name)
-    # Generate SRK
-    tpm.generate_srk(tempdir.name)
+    uefi_config_path = write_uefi_config(cvm)
+    print("Wrote UEFI Config")
 
     # VirtualMachine uses "disk.img" as the name of the image
     encrypted_image_name = "disk.img"
@@ -199,22 +269,13 @@ def execute(args):
     )
     print("Deployed CVM Image")
 
-    def installnew():
-        # Copy packages to VM
-        vm.copy_files(package_paths, "/tmp/")
-        # Install new packages
-        vm.run_cmd(["apt", "install", "--yes", "/tmp/*.deb"])
+    installnew = lambda: install_new_packages(cvm, package_paths)
 
     TASKS = [
-        (lambda: True, lambda: vm.start(tpm=tpm), "Boot and provision image"),
+        (lambda: True, cvm.start, "Boot and provision image"),
         (lambda: True, installnew, "Install new nullboot"),
-        (lambda: True, vm.shutdown, "Shut down virtual machine"),
-        # NOTE: this is a bit hacky but we need to restart the vTPM
-        # process here because swtpm exits when qemu shuts down for
-        # some undocumented reason
-        (lambda: True, tpm.run_process, "Restart vTPM process"),
-        (lambda: True, lambda: vm.start(tpm=tpm), "Boot with new nullboot"),
-        (lambda: True, vm.shutdown, "Shut down virtual machine"),
+        (lambda: True, cvm.reboot, "Shut down and reboot virtual machine"),
+        (lambda: True, cvm.shutdown, "Shut down"),
     ]
 
     for predicate, do_task, msg in TASKS:

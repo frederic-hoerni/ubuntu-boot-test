@@ -3,6 +3,15 @@ from dataclasses import dataclass
 
 from ubuntu_boot_test.vm import VirtualMachine
 
+def boot_entry_hex_str(i: int) -> str:
+    """Convert integer into BootEntry hex string format."""
+    return f"{i:04X}"
+
+
+def boot_order_hex_str(boot_order: tp.List[int]) -> str:
+    """Convert integers in BootOrder into BootEntry hex string format."""
+    return ",".join([boot_entry_hex_str(boot_num) for boot_num in boot_order])
+
 
 @dataclass
 class EFIVars:

@@ -68,7 +68,19 @@ def execute(args):
   }
 
   # Paths of packaged loaders
-  SHIM_SIGNED_PATH = f"usr/lib/shim/shim{EFI_SUFFIXES[args.arch]}.signed.latest"
+  #
+  # Since shim 16.1, shim-signed ships two shims and selects which one to
+  # deploy at runtime based on the Microsoft UEFI CA enrolled in the firmware
+  # db (see is-2023-ca-enrolled / setup_alternatives in the shim-signed
+  # postinst):
+  #   shim<arch>.efi.signed.2023  shim 16.1 (NX), Microsoft UEFI CA 2023
+  #   shim<arch>.efi.signed.2011  shim 15.8, Microsoft UEFI CA 2011
+  # We test the 16.1 shim: below we enroll the 2023 CA into db so it gets
+  # deployed, and target its binary here.
+  SHIM_SIGNED_PATH = f"usr/lib/shim/shim{EFI_SUFFIXES[args.arch]}.signed.2023"
+  SHIM_FALLBACK_SIGNED_PATH = f"usr/lib/shim/shim{EFI_SUFFIXES[args.arch]}.signed.2011"
+  # update-alternatives generic name that resolves to the deployed shim
+  SHIM_ALT_PATH = f"/usr/lib/shim/shim{EFI_SUFFIXES[args.arch]}.signed"
   MM_SIGNED_PATH = f"usr/lib/shim/mm{EFI_SUFFIXES[args.arch]}"
   FB_SIGNED_PATH = f"usr/lib/shim/fb{EFI_SUFFIXES[args.arch]}"
   GRUB_SIGNED_PATH = f"usr/lib/grub/{EFI_TARGETS[args.arch]}/grub{EFI_SUFFIXES[args.arch]}.signed"
@@ -135,6 +147,13 @@ def execute(args):
     grub_hash_esl = pe_to_efihash(binpath)
     grub_sbat = decode_image_sbat(TEMPDIR.name, binpath)
 
+  # Enroll the Microsoft UEFI CA 2023 into db so that, on install, shim-signed
+  # deploys the shim 16.1 binary (shim<arch>.efi.signed.2023).  Keep a copy of
+  # db without it so we can also exercise the 15.8 (2011 CA) fallback.
+  db_without_2023 = vm.read_efivar(EFI_IMAGE_SECURITY_DATABASE_GUID, "db")
+  vm.write_efivar(EFI_IMAGE_SECURITY_DATABASE_GUID, "db",
+    uefica_esl("microsoft uefi ca 2023.pem"), append=True)
+
   def installnew():
     # Copy packages to VM
     vm.copy_files(package_paths, "/tmp/")
@@ -143,6 +162,10 @@ def execute(args):
     # Install new GRUB
     vm.run_cmd(["grub-install", "/dev/disk/by-id/virtio-0"])
     vm.run_cmd(["update-grub"])
+    # With the 2023 CA in db, shim-signed must have selected the 16.1 shim.
+    selected = vm.run_cmd(["readlink", "-f", SHIM_ALT_PATH]).strip()
+    assert selected.endswith(".signed.2023"), \
+      f"expected shim 16.1 (2023) to be deployed, but {SHIM_ALT_PATH} -> {selected}"
 
   def cleansigs(path):
     with maybe_gzip_ctx(path) as ctx:
@@ -331,6 +354,22 @@ def execute(args):
     # Shutdown
     vm.shutdown()
 
+  def shim_ca_fallback():
+    # When the Microsoft UEFI CA 2023 is not enrolled in db, shim-signed must
+    # fall back to the 15.8 (2011 CA) shim.  Remove the 2023 CA, re-run the
+    # selection (dpkg-reconfigure) in an ephemeral snapshot, and check that
+    # the alternative now resolves to the 2011 shim.
+    vm.write_efivar(EFI_IMAGE_SECURITY_DATABASE_GUID, "db", db_without_2023, append=False)
+    vm.start(ephemeral_snapshot=True)
+    vm.run_cmd(["sh", "-c", "\"DEBIAN_FRONTEND=noninteractive dpkg-reconfigure shim-signed\""])
+    selected = vm.run_cmd(["readlink", "-f", SHIM_ALT_PATH]).strip()
+    vm.forceshutdown()
+    # Restore db (re-enroll the 2023 CA) before asserting.
+    vm.write_efivar(EFI_IMAGE_SECURITY_DATABASE_GUID, "db",
+      uefica_esl("microsoft uefi ca 2023.pem"), append=True)
+    assert selected.endswith(".signed.2011"), \
+      f"expected shim 15.8 (2011) fallback, but {SHIM_ALT_PATH} -> {selected}"
+
   TASKS = [
     (lambda: True,
       vm.start,               "Boot and provision image"),
@@ -342,6 +381,8 @@ def execute(args):
       vm.start,               "Boot with new bootloaders"),
     (lambda: True,
       vm.shutdown,            "Shut down virtual machine"),
+    (lambda: True,
+      shim_ca_fallback,       "Secure Boot CA: 15.8 fallback when 2023 CA absent"),
     (lambda: True,
       strip_shim,             "Secure Boot: stripping shim signature"),
     (lambda: True,

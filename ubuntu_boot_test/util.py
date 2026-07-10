@@ -247,6 +247,16 @@ def is_uefica_signed(path):
       return True
   return False
 
+def uefica_esl(filename):
+  """Load a UEFI CA certificate shipped under uefica/ and wrap it as an
+  EFI_SIGNATURE_LIST, suitable for enrolling into a signature database
+  variable (e.g. db) via VirtualMachine.write_efivar(..., append=True).
+  """
+  uefica_path = os.path.join(os.path.dirname(__file__), "uefica", filename)
+  with open(uefica_path, "rb") as f:
+    cert = crypto.load_certificate(crypto.FILETYPE_PEM, f.read())
+  return asn1_to_efi(crypto.dump_certificate(crypto.FILETYPE_ASN1, cert))
+
 def is_canonical_signed(path):
   canonical_uefi_ca_path = os.path.join(os.path.dirname(__file__), "canonical-uefi-ca.pem")
   result = subprocess.run(["sbverify", "--cert", canonical_uefi_ca_path, path], capture_output=not DEBUG)

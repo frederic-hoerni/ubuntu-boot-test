@@ -221,8 +221,11 @@ class ConfidentialVirtualMachine(VirtualMachine):
     ):
         super().__init__(cwd, image_url, arch, firmware)
         self.tpm = TPM(cwd)
+
+    def init_tpm_srk(self):
         # Generates "srk.pub" in cwd
-        self.tpm.generate_srk(cwd)
+        LOGGER.info("Generating TPM SRK...")
+        self.tpm.generate_srk(self._vmdir)
 
     def start(self) -> None:  # type: ignore[override]
         """Start the CVM with the TPM activated. Timeout after 30 minutes."""
@@ -368,6 +371,11 @@ def register(subparsers) -> None:
     parser.add_argument(
         "-a", "--arch", required=True, type=util.Arch, help="Guest architecture"
     )
+    parser.add_argument("--step", required=True, choices=["all", "provision", "run"],
+        help="Select 'provision' to provision a VM image, and 'run' to start it")
+    parser.add_argument("-d", "--directory", required=True,
+        help="Path to the provisioned VM image "
+             "(input or output depending on --step)")
     parser.add_argument(
         "packages",
         nargs="*",
@@ -379,7 +387,7 @@ def test_fallback_mechanism(
     cvm: ConfidentialVirtualMachine,
     efi_signature: EFISignature,
     latest_kernel_version: int,
-    tempdir: tempfile.TemporaryDirectory,
+    workdir: str,
 ) -> None:
     """
     This tests that the fallback mechanism is working as intended;
@@ -394,7 +402,7 @@ def test_fallback_mechanism(
 
     LOGGER.debug("Generating signed, broken UKI")
     broken_uki_path = build_signed_bad_uki(
-        efi_signature, latest_kernel_version, tempdir.name
+        efi_signature, latest_kernel_version, workdir
     )
     LOGGER.debug("Generated signed, broken UKI")
 
@@ -487,7 +495,6 @@ def test_systemd_service(
     cvm: ConfidentialVirtualMachine,
     efi_signature: EFISignature,
     latest_kernel_version: int,
-    tempdir: tempfile.TemporaryDirectory,
 ) -> None:
     """
     This tests the expected functionality of the systemd service in the
@@ -573,31 +580,24 @@ def test_systemd_service(
     assert failures == [], f"Systemd service failed: {pformat(failures)}"
 
 
-def execute(args):
-    """Generate the test environment and run nullboot end-to-end tests."""
-    arch = util.Arch(args.arch)
-    release = args.release
-    packages = args.packages
-
-    tempdir = tempfile.TemporaryDirectory("")
-
-    package_paths = util.prepare_packages(tempdir.name, PACKAGE_SETS[arch], packages)
+def provision_vm(workdir, arch, release):
 
     # Download ECI before image to ensure NBD is loaded before setting up
     # VM infrastructure (which can be time-consuming)
-    eci = EncryptCloudImage(tempdir.name)
+    eci = EncryptCloudImage(workdir)
     LOGGER.debug("Initialized encrypt-cloud-image")
 
     cvm_image_name = ConfidentialVirtualMachine.prepare_cvm_image(
-        tempdir.name, release, arch
+        workdir, release, arch
     )
     LOGGER.debug("Downloaded and truncated CVM Image")
 
     # Create virtual machine
-    cvm = ConfidentialVirtualMachine(tempdir.name, None, arch, util.Firmware.UEFI)
+    cvm = ConfidentialVirtualMachine(workdir, None, arch, util.Firmware.UEFI)
+    cvm.init_tpm_srk()
     LOGGER.debug("Initialized VM Environment")
 
-    efi_signature = EFISignature.x509_format(tempdir.name)
+    efi_signature = EFISignature.x509_format(workdir)
     efi_signature.register_to_vm(cvm)
     LOGGER.debug("Registered EFI Signature to VM")
 
@@ -607,10 +607,10 @@ def execute(args):
     # VirtualMachine uses "disk.img" as the name of the image
     encrypted_image_name = "disk.img"
     eci.encrypt(
-        image_dir=tempdir.name,
+        image_dir=workdir,
         image_name=cvm_image_name,
         encrypted_image_name=encrypted_image_name,
-        cwd=tempdir.name,
+        cwd=workdir,
     )
     LOGGER.debug("Encrypted CVM Image")
 
@@ -618,10 +618,15 @@ def execute(args):
         uefi_config_path=uefi_config_path,
         encrypted_image_name=encrypted_image_name,
         srk_path="srk.pub",
-        cwd=tempdir.name,
+        cwd=workdir,
     )
     LOGGER.debug("Deployed CVM Image")
 
+    return cvm
+
+
+def run_test(cvm, workdir, package_paths):
+    """Execute the test scenario."""
     LOGGER.info("Begin Testing")
     cvm.start()
     LOGGER.info("Boot and provision image OK")
@@ -639,12 +644,47 @@ def execute(args):
     latest_kernel_version = 99999
 
     # Run tests
-    test_fallback_mechanism(cvm, efi_signature, latest_kernel_version, tempdir)
+    test_fallback_mechanism(cvm, efi_signature, latest_kernel_version, workdir)
     LOGGER.info("Test fallback mechanism OK")
 
     latest_kernel_version += 1
-    test_systemd_service(cvm, efi_signature, latest_kernel_version, tempdir)
+    test_systemd_service(cvm, efi_signature, latest_kernel_version)
     LOGGER.info("Test systemd service OK")
 
     cvm.shutdown()
     LOGGER.info("Shut down OK")
+
+
+def execute(args):
+    """Generate the test environment and run nullboot end-to-end tests."""
+    arch = util.Arch(args.arch)
+    release = args.release
+    packages = args.packages
+
+    if args.directory:
+        workdir = args.directory
+        os.makedirs(workdir, exist_ok=True)
+        LOGGER.info("Using working directory %s", workdir)
+    else:
+        tempdir = tempfile.TemporaryDirectory("")
+        workdir = tempdir.name
+        LOGGER.info("Using temporary working directory %s (will be removed when the program exists)", workdir)
+
+    # convert to absolute path, as some commands below rely on that
+    workdir = os.path.realpath(workdir)
+
+
+    package_paths = util.prepare_packages(workdir, PACKAGE_SETS[arch], packages)
+
+    if args.step == 'all':
+        cvm = provision_vm(workdir, arch, release)
+        run_test(cvm, workdir, package_paths)
+
+    elif args.step == 'provision':
+        provision_vm(workdir, arch, release)
+
+    else: # 'run'
+        # Init VM from the given directory
+        cvm = ConfidentialVirtualMachine(workdir, None, arch, util.Firmware.UEFI)
+        run_test(cvm, workdir, package_paths)
+

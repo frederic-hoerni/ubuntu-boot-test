@@ -346,7 +346,7 @@ def write_uefi_config(vm: VirtualMachine) -> str:
     }
     uefi_config_path = os.path.join(vm._vmdir, "uefi.json")
     with open(uefi_config_path, "w") as f:
-        LOGGER.debug("Using UEFI config", json.dumps(uefi_config))
+        LOGGER.debug("Using UEFI config %s" % json.dumps(uefi_config))
         f.write(json.dumps(uefi_config))
 
     return uefi_config_path

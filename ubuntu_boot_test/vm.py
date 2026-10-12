@@ -31,6 +31,7 @@ import signal
 import socket
 import subprocess
 import tempfile
+import time
 
 # VM configuration based on architecture and firmware type
 vmconfig = {
@@ -349,12 +350,12 @@ class VirtualMachine:
   def waitshutdown(self):
     self._vm_process.wait()
 
-  def run_cmd(self, args, assert_ok=True):
+  def run_cmd(self, args, assert_ok=True, input=None):
     result = subprocess.run(["ssh",
       "-o", "StrictHostKeyChecking=no",
       "-o", "UserKnownHostsFile=/dev/null",
       "-p", "2222",
-      "root@localhost" ] + args, capture_output=True)
+      "root@localhost" ] + args, capture_output=True, input=input)
     if DEBUG:
       print(result.stdout.decode())
       print(result.stderr.decode(), file=sys.stderr)

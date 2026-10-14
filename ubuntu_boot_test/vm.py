@@ -31,6 +31,7 @@ import signal
 import socket
 import subprocess
 import tempfile
+import time
 
 # VM configuration based on architecture and firmware type
 vmconfig = {
@@ -288,13 +289,31 @@ class VirtualMachine:
     if wait:
       self.waitshutdown()
 
+  def connect_serial(self, serfd):
+    # Make 3 attempts and retry on ConnectionRefusedError
+    for i in [1, 2, 3]:
+      try:
+        print(f"Connecting to serial (attempt {i}/3)")
+        serfd.connect(self._serial_socket)
+      except ConnectionRefusedError:
+        print(f"Retrying in 1 second (got ConnectionRefusedError)")
+        time.sleep(1)
+        continue
+      except Exception as e:
+        raise e
+      # no exception, return normally
+      print(f"Connected to serial")
+      return
+    # All attempts failed
+    raise Exception("Cannot connect to serial")
+
   def waitboot(self):
     # Wait for serial to come up
     while not os.access(self._serial_socket, os.F_OK):
       pass
     # Wait for serial data *or* notifier connection
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as serfd:
-      serfd.connect(self._serial_socket)
+      self.connect_serial(serfd)
       while True:
         rlist, _, _ = select.select((serfd, self._host_vsock,), (), ())
         if DEBUG and serfd in rlist:
@@ -331,12 +350,12 @@ class VirtualMachine:
   def waitshutdown(self):
     self._vm_process.wait()
 
-  def run_cmd(self, args, assert_ok=True):
+  def run_cmd(self, args, assert_ok=True, input=None):
     result = subprocess.run(["ssh",
       "-o", "StrictHostKeyChecking=no",
       "-o", "UserKnownHostsFile=/dev/null",
       "-p", "2222",
-      "root@localhost" ] + args, capture_output=True)
+      "root@localhost" ] + args, capture_output=True, input=input)
     if DEBUG:
       print(result.stdout.decode())
       print(result.stderr.decode(), file=sys.stderr)

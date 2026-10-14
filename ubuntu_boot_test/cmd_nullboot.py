@@ -20,6 +20,7 @@ import datetime
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -346,7 +347,7 @@ def write_uefi_config(vm: VirtualMachine) -> str:
     }
     uefi_config_path = os.path.join(vm._vmdir, "uefi.json")
     with open(uefi_config_path, "w") as f:
-        LOGGER.debug("Using UEFI config", json.dumps(uefi_config))
+        LOGGER.debug("Using UEFI config %s" % json.dumps(uefi_config))
         f.write(json.dumps(uefi_config))
 
     return uefi_config_path
@@ -373,6 +374,29 @@ def register(subparsers) -> None:
         nargs="*",
         help="List of packages to install (instead of apt-get download)",
     )
+
+
+def test_recovery_key(
+    cvm: ConfidentialVirtualMachine,
+) -> None:
+    """
+    This tests creating, listing and deleting recovery keys.
+    """
+    LOGGER.info("Test nullbootctl recovery-key starting")
+    recovery_key1 = cvm.run_cmd(["nullbootctl", "recovery-key", "--create", "--name", "recovery-1"])
+    assert re.match("[0-9]+-[0-9]+-[0-9]+-[0-9]+-[0-9]+-[0-9]+-[0-9]+-[0-9]+\n$", recovery_key1)
+    recovery_key2 = cvm.run_cmd(["nullbootctl", "recovery-key", "--create", "--name", "recovery-2"])
+    assert re.match("[0-9]+-[0-9]+-[0-9]+-[0-9]+-[0-9]+-[0-9]+-[0-9]+-[0-9]+\n$", recovery_key2)
+    cvm.run_cmd(["nullbootctl", "recovery-key", "--list"])
+    cvm.run_cmd(["nullbootctl", "recovery-key", "--verify"], input=recovery_key1.encode())
+    cvm.run_cmd(["nullbootctl", "recovery-key", "--verify"], input=recovery_key2.encode())
+    cvm.run_cmd(["nullbootctl", "recovery-key", "--delete", "--name", "recovery-1"])
+    cvm.run_cmd(["nullbootctl", "recovery-key", "--verify"], input=recovery_key1.encode(), assert_ok=False)
+    cvm.run_cmd(["nullbootctl", "recovery-key", "--verify"], input=recovery_key2.encode())
+    cvm.run_cmd(["nullbootctl", "recovery-key", "--list"])
+    cvm.run_cmd(["nullbootctl", "recovery-key", "--delete", "--name", "recovery-2"], assert_ok=False)
+    cvm.run_cmd(["nullbootctl", "recovery-key", "--verify"], input=recovery_key2.encode())
+    LOGGER.info("Run nullbootctl recovery-key OK")
 
 
 def test_fallback_mechanism(
@@ -638,7 +662,10 @@ def execute(args):
     # Need kernel artifacts to be registered as the latest available kernel version
     latest_kernel_version = 99999
 
-    # Run tests
+    # Run test
+    test_recovery_key(cvm)
+    LOGGER.info("Test recovery key OK")
+
     test_fallback_mechanism(cvm, efi_signature, latest_kernel_version, tempdir)
     LOGGER.info("Test fallback mechanism OK")
 

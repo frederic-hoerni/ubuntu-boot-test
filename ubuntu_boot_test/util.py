@@ -402,7 +402,12 @@ class ProcessWrapper:
     atexit.register(self.kill_process)
 
   def kill_process(self):
-    os.kill(self._process.pid, signal.SIGINT)
+    try:
+      os.kill(self._process.pid, signal.SIGINT)
+    except PermissionError:
+      print(f"Could not kill child: PermissionError (is it already defunct?)",
+            file=sys.stderr)
+
     self._process.wait()
 
     # We no longer need this hook now that the process is dead

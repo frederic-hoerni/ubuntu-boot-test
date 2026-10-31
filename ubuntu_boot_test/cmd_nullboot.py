@@ -426,8 +426,8 @@ def test_fallback_mechanism(
     cvm.copy_files([broken_uki_path], "/usr/lib/linux/efi/")
     LOGGER.debug(f"Copied {repr(broken_uki_path)} to '/usr/lib/linux/efi/'")
 
-    cvm.run_cmd(["nullbootctl"])
-    LOGGER.info("Run nullbootctl OK")
+    cvm.run_cmd(["nullbootctl install"])
+    LOGGER.info("Run nullbootctl install OK")
 
     bad_kernel_bootvars = EFIVars.from_efibootmgr(cvm)
     if bad_kernel_bootvars.boot_order != initial_bootvars.boot_order:
@@ -527,8 +527,8 @@ def test_systemd_service(
     # Copy known good kernel to test it boots properly
     copy_host_kernel(cvm, latest_kernel_version)
 
-    cvm.run_cmd(["nullbootctl"])
-    LOGGER.info("Run nullbootctl OK")
+    cvm.run_cmd(["nullbootctl install"])
+    LOGGER.info("Run nullbootctl install OK")
 
     good_kernel_bootvars = EFIVars.from_efibootmgr(cvm)
 
